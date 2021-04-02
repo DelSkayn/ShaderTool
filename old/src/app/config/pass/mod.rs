@@ -1,11 +1,14 @@
-use crate::app::{AnyResourceId, RenderData, ResourceId, Resources};
+use crate::app::{resource::AnyResourceId, RenderData, ResourceId, Resources};
 use anyhow::{Context, Result};
 use glam::{Mat4, Quat};
-use glium::{draw_parameters, uniform, Display, DrawParameters, Frame, Program, Surface};
+use glium::{uniform, Display, DrawParameters, Frame, Program, Surface};
 use serde_derive::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, f32, sync::Arc};
 
 use super::*;
+
+mod settings;
+use settings::Settings;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Pass {
@@ -13,6 +16,8 @@ pub struct Pass {
     fragment_shader: String,
     #[serde(default)]
     objects: Vec<String>,
+    #[serde(default)]
+    settings: Settings,
 }
 
 pub struct LoadedPass {
@@ -20,6 +25,7 @@ pub struct LoadedPass {
     pub fragment_shader: ResourceId<Shader>,
     program: Program,
     objects: Vec<Arc<LoadedObject>>,
+    draw_parameters: DrawParameters<'static>,
 }
 
 impl LoadedPass {
@@ -48,8 +54,8 @@ impl LoadedPass {
 
         let program = Program::from_source(
             display,
-            &res.get(vertex_shader).unwrap().source,
-            &res.get(fragment_shader).unwrap().source,
+            &res.get(&vertex_shader).unwrap().source,
+            &res.get(&fragment_shader).unwrap().source,
             None,
         )
         .context("Compiling shader program")?;
@@ -58,6 +64,7 @@ impl LoadedPass {
             fragment_shader,
             program,
             objects,
+            draw_parameters: pass.settings.to_params()
         })
     }
 
@@ -68,8 +75,8 @@ impl LoadedPass {
 
         let program = Program::from_source(
             display,
-            &res.get(self.vertex_shader).unwrap().source,
-            &res.get(self.fragment_shader).unwrap().source,
+            &res.get(&self.vertex_shader).unwrap().source,
+            &res.get(&self.fragment_shader).unwrap().source,
             None,
         )
         .context("Failed to compile shader program")?;
@@ -79,11 +86,11 @@ impl LoadedPass {
 
     pub fn render(&self, frame: &mut Frame, data: &RenderData) -> Result<()> {
         for object in self.objects.iter() {
-            let model = Mat4::from_scale_rotation_translation(
-                object.scale,
-                Quat::IDENTITY,
-                object.position,
-            );
+            let rot = object.rotation / 360.0 * 2.0 * f32::consts::PI;
+            let rotation = Quat::from_rotation_ypr(rot.x, rot.y, rot.z);
+
+            let model =
+                Mat4::from_scale_rotation_translation(object.scale, rotation, object.position);
 
             let uniforms = uniform! {
                 model: model.to_cols_array_2d(),
@@ -91,22 +98,12 @@ impl LoadedPass {
                 projection: data.projection.to_cols_array_2d(),
             };
 
-            let params = DrawParameters {
-                depth: draw_parameters::Depth {
-                    test: draw_parameters::DepthTest::IfLess,
-                    write: true,
-                    ..draw_parameters::Depth::default()
-                },
-                backface_culling: draw_parameters::BackfaceCullingMode::CullCounterClockwise,
-                ..DrawParameters::default()
-            };
-
             frame.draw(
                 &object.verticies,
                 &object.indicies,
                 &self.program,
                 &uniforms,
-                &params,
+                &self.draw_parameters,
             )?;
         }
         Ok(())

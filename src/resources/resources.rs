@@ -1,125 +1,23 @@
+use super::*;
 use anyhow::{Context, Result};
-use glium::Display;
 use std::{
-    cmp::PartialEq,
     collections::HashMap,
     fs::File,
     marker::PhantomData,
-    mem,
     path::{Path, PathBuf},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc, Weak,
+    },
 };
-
-#[repr(C)]
-pub struct RawTrait {
-    pub data: *mut (),
-    pub vtable: *mut (),
-}
-
-unsafe fn downcast<T: DynResource>(t: &dyn DynResource) -> &T {
-    let value: RawTrait = mem::transmute(t);
-    &*mem::transmute::<_, *mut T>(value.data)
-}
-
-unsafe fn downcast_mut<T: DynResource>(t: &mut dyn DynResource) -> &mut T {
-    let value: RawTrait = mem::transmute(t);
-    &mut *mem::transmute::<_, *mut T>(value.data)
-}
-
-#[derive(Eq, PartialEq)]
-pub struct ResourceId<T: Resource> {
-    idx: u32,
-    generation: u32,
-    __marker: PhantomData<T>,
-}
-
-impl<T: Resource> Clone for ResourceId<T> {
-    fn clone(&self) -> Self {
-        ResourceId {
-            idx: self.idx,
-            generation: self.generation,
-            __marker: PhantomData,
-        }
-    }
-}
-
-impl<T: Resource> Copy for ResourceId<T> {}
-
-impl<T: Resource> ResourceId<T> {
-    pub fn into_any(self) -> AnyResourceId {
-        AnyResourceId {
-            idx: self.idx,
-            generation: self.generation,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Eq, PartialEq, Hash, Debug)]
-pub struct AnyResourceId {
-    idx: u32,
-    generation: u32,
-}
-
-impl<T: Resource> PartialEq<AnyResourceId> for ResourceId<T> {
-    fn eq(&self, other: &AnyResourceId) -> bool {
-        self.idx == other.idx && self.generation == other.generation
-    }
-}
-
-impl<T: Resource> PartialEq<ResourceId<T>> for AnyResourceId {
-    fn eq(&self, other: &ResourceId<T>) -> bool {
-        self.idx == other.idx && self.generation == other.generation
-    }
-}
-
-pub trait Resource: 'static + Sized {
-    fn load(file: File, display: &Display, res: &mut Resources) -> Result<Self>;
-
-    fn reload(&mut self, file: File, display: &Display, res: &mut Resources) -> Result<()> {
-        *self = Self::load(file, display, res)?;
-        Ok(())
-    }
-
-    fn reload_dependency(
-        &mut self,
-        _dependency: AnyResourceId,
-        _display: &Display,
-        _res: &Resources,
-    ) -> Result<bool> {
-        Ok(false)
-    }
-}
-
-trait DynResource {
-    fn reload(&mut self, file: File, display: &Display, res: &mut Resources) -> Result<()>;
-
-    fn reload_dependency(
-        &mut self,
-        dependency: AnyResourceId,
-        display: &Display,
-        res: &Resources,
-    ) -> Result<bool>;
-}
-
-impl<T: Resource> DynResource for T {
-    fn reload(&mut self, file: File, display: &Display, res: &mut Resources) -> Result<()> {
-        (*self).reload(file, display, res)
-    }
-
-    fn reload_dependency(
-        &mut self,
-        dependency: AnyResourceId,
-        display: &Display,
-        res: &Resources,
-    ) -> Result<bool> {
-        (*self).reload_dependency(dependency, display, res)
-    }
-}
+use vulkano::device::Device;
 
 pub struct Filled {
     generation: u32,
     parent: Option<AnyResourceId>,
     name: PathBuf,
     file: Option<Box<dyn DynResource>>,
+    key: Weak<ResourceIdData>,
 }
 
 pub struct Empty {
@@ -167,42 +65,69 @@ pub struct Resources {
     res: Vec<ResourceEntry>,
     first_empty: Option<u32>,
     parent_stack: Vec<AnyResourceId>,
+    clean_reciever: Receiver<AnyResourceId>,
+    clean_sender: Sender<AnyResourceId>,
 }
 
 impl Resources {
     pub fn new() -> Self {
+        let (send, recv) = mpsc::channel();
         Resources {
             names: HashMap::new(),
             res: Vec::new(),
             first_empty: None,
             parent_stack: Vec::new(),
+            clean_reciever: recv,
+            clean_sender: send,
         }
     }
 
-    pub fn get<T: Resource>(&self, id: ResourceId<T>) -> Option<&T> {
-        self.res.get(id.idx as usize).and_then(|x| {
+    pub fn get<T: Resource>(&self, id: &ResourceId<T>) -> Option<&T> {
+        self.res.get(id.id() as usize).and_then(|x| {
             let filled = x.as_filled()?;
-            if filled.generation != id.generation {
+            if filled.generation != id.generation() {
                 return None;
             }
             return Some(unsafe { downcast(filled.file.as_deref().unwrap()) });
         })
     }
 
-    pub fn get_mut<T: Resource>(&mut self, id: ResourceId<T>) -> Option<&mut T> {
-        self.res.get_mut(id.idx as usize).and_then(|x| {
+    pub fn get_mut<T: Resource>(&mut self, id: &ResourceId<T>) -> Option<&mut T> {
+        self.res.get_mut(id.id() as usize).and_then(|x| {
             let filled = x.as_filled_mut()?;
-            if filled.generation != id.generation {
+            if filled.generation != id.generation() {
                 return None;
             }
             return Some(unsafe { downcast_mut(filled.file.as_deref_mut().unwrap()) });
         })
     }
 
+    fn clean(&mut self) {
+        while let Ok(id) = self.clean_reciever.try_recv() {
+            if let Some(x) = self
+                .res
+                .get_mut(id.idx as usize)
+                .and_then(ResourceEntry::as_filled_mut)
+            {
+                if x.generation != id.generation {
+                    return;
+                }
+                dbg!(&x.name);
+                self.names.remove(&x.name);
+
+                self.res[id.idx as usize] = ResourceEntry::Empty(Empty {
+                    next: self.first_empty,
+                    generation: id.generation,
+                });
+                self.first_empty = Some(id.idx)
+            }
+        }
+    }
+
     pub fn insert<T: Resource, P: Into<PathBuf>>(
         &mut self,
         path: P,
-        display: &Display,
+        device: &Device,
     ) -> Result<ResourceId<T>> {
         self.insert_res(path.into(), display)
     }
@@ -210,21 +135,29 @@ impl Resources {
     fn insert_res<T: Resource>(
         &mut self,
         base_name: PathBuf,
-        display: &Display,
+        device: &Device,
     ) -> Result<ResourceId<T>> {
+        self.clean();
         trace!("loading {}", base_name.display());
         let name = base_name
             .canonicalize()
             .with_context(|| format!("Failed to open file for {}", base_name.display()))?;
 
+        // Handle pressent value
         if let Some(x) = self.names.get(&name) {
+            let id = self.res[x.idx as usize]
+                .as_filled()
+                .unwrap()
+                .key
+                .upgrade()
+                .unwrap();
             return Ok(ResourceId {
-                generation: x.generation,
-                idx: x.idx,
+                id,
                 __marker: PhantomData,
             });
         }
 
+        // Generate idx and generation
         let (idx, generation) = if let Some(x) = self.first_empty {
             let empty = self.res[x as usize].as_empty().unwrap();
             self.first_empty = empty.next;
@@ -238,53 +171,39 @@ impl Resources {
             }));
             (idx as u32, 0)
         };
+
         let file = File::open(&name)
             .with_context(|| format!("Failed to open file for {}", name.display()))?;
-        let name = name.canonicalize().unwrap();
         self.parent_stack.push(AnyResourceId { idx, generation });
         let res = T::load(file, display, self)
             .with_context(|| format!("Loading resource {}", base_name.display()))?;
         self.parent_stack.pop();
+
+        let any_id = AnyResourceId { idx, generation };
+
+        let key = Arc::new(ResourceIdData {
+            id: any_id,
+            sender: self.clean_sender.clone(),
+        });
+
         self.res[idx as usize] = ResourceEntry::File(Filled {
             file: Some(Box::new(res)),
             parent: self.parent_stack.last().copied(),
             generation,
             name: name.clone(),
+            key: Arc::downgrade(&key),
         });
-        self.names.insert(name, AnyResourceId { idx, generation });
+        self.names.insert(name, any_id);
 
         Ok(ResourceId {
-            idx,
-            generation,
+            id: key,
             __marker: PhantomData,
         })
     }
 
-    pub fn remove<T: Resource>(&mut self, id: ResourceId<T>) {
-        self.remove_any(id.into_any());
-    }
-
-    pub fn remove_any(&mut self, id: AnyResourceId) {
-        if let Some(x) = self
-            .res
-            .get_mut(id.idx as usize)
-            .and_then(ResourceEntry::as_filled_mut)
-        {
-            if x.generation != id.generation {
-                return;
-            }
-            self.names.remove(&x.name);
-
-            self.res[id.idx as usize] = ResourceEntry::Empty(Empty {
-                next: self.first_empty,
-                generation: id.generation,
-            });
-            self.first_empty = Some(id.idx)
-        }
-    }
-
-    pub fn reload<P: AsRef<Path>>(&mut self, path: P, display: &Display) -> Result<bool> {
+    pub fn reload<P: AsRef<Path>>(&mut self, path: P, device: &Device) -> Result<bool> {
         let orig_path = path.as_ref();
+        trace!("reloading: {}", orig_path.display());
         let path = match path.as_ref().canonicalize() {
             Ok(x) => x,
             Err(_) => return Ok(false),
@@ -305,8 +224,10 @@ impl Resources {
             if let Some(parent) = entry.parent {
                 self.reload_dependency(parent, x, display)?;
             }
+            self.clean();
             return Ok(true);
         }
+        self.clean();
         Ok(false)
     }
 
@@ -314,7 +235,7 @@ impl Resources {
         &mut self,
         id: AnyResourceId,
         reloaded: AnyResourceId,
-        display: &Display,
+        device: &Device,
     ) -> Result<()> {
         let entry = self.res[id.idx as usize].as_filled_mut().unwrap();
         let mut f = entry.file.take().unwrap();

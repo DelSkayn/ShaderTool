@@ -216,7 +216,43 @@ impl Geometry {
     ) -> Result<(VertexBuffer<Vertex>, IndexBuffer<u32>)> {
         match &self {
             Geometry::Cube(ref x) => x.to_buffers(display),
-            _ => todo!(),
+            Geometry::ScreenQuad => Ok(Self::screen_quad(display)),
         }
+    }
+
+    fn screen_quad(display: &Display) -> (VertexBuffer<Vertex>, IndexBuffer<u32>) {
+        let verticies = vec![
+            Vertex {
+                position: [-1.0, -1.0, 0.0],
+                normal: [0.0, 0.0, -1.0],
+                tex_coord: [-1.0, -1.0],
+            },
+            Vertex {
+                position: [1.0, -1.0, 0.0],
+                normal: [0.0, 0.0, -1.0],
+                tex_coord: [1.0, -1.0],
+            },
+            Vertex {
+                position: [1.0, 1.0, 0.0],
+                normal: [0.0, 0.0, -1.0],
+                tex_coord: [1.0, 1.0],
+            },
+            Vertex {
+                position: [-1.0, 1.0, 0.0],
+                normal: [0.0, 0.0, -1.0],
+                tex_coord: [-1.0, 1.0],
+            },
+        ];
+
+        let indicies: Vec<u32> = vec![0, 3, 2, 0, 2, 1];
+
+        let vertex = VertexBuffer::immutable(display, &verticies).unwrap();
+        let index = IndexBuffer::immutable(
+            display,
+            glium::index::PrimitiveType::TrianglesList,
+            &indicies,
+        )
+        .unwrap();
+        (vertex, index)
     }
 }

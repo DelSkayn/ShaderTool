@@ -1,17 +1,13 @@
 use crate::app::{
-    camera::{Camera as Cam, CameraHandler},
-    AnyResourceId, Resource, Resources, Vertex,
+    camera::{Camera as Cam, CameraHandler, OrbitalCamera},
+    resource::AnyResourceId,
+    Resource, Resources, Vertex,
 };
 use anyhow::{Context, Result};
-use glam::f32::Vec3;
+use glam::f32::{Vec2, Vec3};
 use glium::{Display, IndexBuffer, VertexBuffer};
 use serde_derive::{Deserialize, Serialize};
-use std::{
-    collections::{HashMap, HashSet},
-    fs::File,
-    io::Read,
-    sync::Arc,
-};
+use std::{collections::HashMap, fs::File, io::Read, sync::Arc};
 
 mod geom;
 pub use geom::Geometry;
@@ -147,10 +143,13 @@ impl Resource for LoadedConfig {
                     .with_context(|| format!("Failed to load pass {} ", idx))?,
             );
         }
-        let camera_handler = match config.camera.ty {
+        let mut camera_handler = match config.camera.ty {
             CameraType::Orbital => Box::new(OrbitalCamera::new()) as Box<dyn CameraHandler>,
             CameraType::Fps => todo!(),
         };
+
+        let mut camera = Cam::new();
+        camera_handler.handle_mouse_move(&mut camera, Vec2::ZERO);
 
         Ok(LoadedConfig {
             passes,
@@ -161,20 +160,11 @@ impl Resource for LoadedConfig {
     }
 
     fn reload(&mut self, file: File, display: &Display, res: &mut Resources) -> Result<()> {
-        let new_value = Self::load(file, display, res)?;
-        let mut set = HashSet::new();
-        for p in self.passes.iter() {
-            set.insert(p.vertex_shader.into_any());
-            set.insert(p.fragment_shader.into_any());
-        }
-        for p in new_value.passes.iter() {
-            set.remove(&p.vertex_shader.into_any());
-            set.remove(&p.fragment_shader.into_any());
-        }
+        let mut new_value = Self::load(file, display, res)?;
 
-        for v in set {
-            res.remove_any(v);
-        }
+        new_value
+            .camera_handler
+            .handle_mouse_move(&mut new_value.camera, Vec2::ZERO);
 
         *self = new_value;
         Ok(())

@@ -10,5 +10,5 @@ layout(set = 0, binding = 1) uniform sampler s_text;
 
 
 void main() {
-    out_color = f_color * texture(sampler2D(t_text, s_text), f_uv.st);
+    out_color = f_color * texture(sampler2D(t_text, s_text), f_uv);
 }

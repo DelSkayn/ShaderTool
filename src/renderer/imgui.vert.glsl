@@ -16,6 +16,6 @@ layout(location = 1) out vec4 f_color;
 
 void main() {
   f_uv = uv;
-  f_color = col / 255.0;
+  f_color = col;
   gl_Position = matrix * vec4(pos.xy, 0, 1);
 }

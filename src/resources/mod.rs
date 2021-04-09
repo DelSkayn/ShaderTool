@@ -1,12 +1,12 @@
+use crate::State;
 use anyhow::Result;
 use std::{
     cmp::PartialEq,
-    fs::File,
     marker::PhantomData,
     mem,
+    path::Path,
     sync::{mpsc::Sender, Arc},
 };
-use vulkano::device::Device;
 mod resources;
 pub use resources::Resources;
 
@@ -79,17 +79,21 @@ pub struct AnyResourceId {
 }
 
 pub trait Resource: 'static + Sized {
-    fn load(file: File, device: &Device, res: &mut Resources) -> Result<Self>;
+    type Context;
 
-    fn reload(&mut self, file: File, device: &Device, res: &mut Resources) -> Result<()> {
-        *self = Self::load(file, device, res)?;
-        Ok(())
-    }
+    fn load(
+        path: &Path,
+        ctx: Self::Context,
+        state: &mut State,
+        res: &mut Resources,
+    ) -> Result<Self>;
+
+    fn reload(&mut self, path: &Path, state: &mut State, res: &mut Resources) -> Result<()>;
 
     fn reload_dependency(
         &mut self,
         _dependency: AnyResourceId,
-        _device: &Device,
+        _state: &mut State,
         _res: &Resources,
     ) -> Result<bool> {
         Ok(false)
@@ -97,27 +101,27 @@ pub trait Resource: 'static + Sized {
 }
 
 trait DynResource {
-    fn reload(&mut self, file: File, device: &Device, res: &mut Resources) -> Result<()>;
+    fn reload(&mut self, path: &Path, state: &mut State, res: &mut Resources) -> Result<()>;
 
     fn reload_dependency(
         &mut self,
         dependency: AnyResourceId,
-        Device: &Device,
+        state: &mut State,
         res: &Resources,
     ) -> Result<bool>;
 }
 
 impl<T: Resource> DynResource for T {
-    fn reload(&mut self, file: File, device: &Device, res: &mut Resources) -> Result<()> {
-        (*self).reload(file, device, res)
+    fn reload(&mut self, path: &Path, state: &mut State, res: &mut Resources) -> Result<()> {
+        (*self).reload(path, state, res)
     }
 
     fn reload_dependency(
         &mut self,
         dependency: AnyResourceId,
-        Device: &Device,
+        state: &mut State,
         res: &Resources,
     ) -> Result<bool> {
-        (*self).reload_dependency(dependency, device, res)
+        (*self).reload_dependency(dependency, state, res)
     }
 }

@@ -2,7 +2,6 @@ use super::*;
 use anyhow::{Context, Result};
 use std::{
     collections::HashMap,
-    fs::File,
     marker::PhantomData,
     path::{Path, PathBuf},
     sync::{
@@ -10,7 +9,6 @@ use std::{
         Arc, Weak,
     },
 };
-use vulkano::device::Device;
 
 pub struct Filled {
     generation: u32,
@@ -112,7 +110,6 @@ impl Resources {
                 if x.generation != id.generation {
                     return;
                 }
-                dbg!(&x.name);
                 self.names.remove(&x.name);
 
                 self.res[id.idx as usize] = ResourceEntry::Empty(Empty {
@@ -124,19 +121,15 @@ impl Resources {
         }
     }
 
-    pub fn insert<T: Resource, P: Into<PathBuf>>(
-        &mut self,
-        path: P,
-        device: &Device,
-    ) -> Result<ResourceId<T>> {
-        self.insert_res(path.into(), display)
-    }
 
-    fn insert_res<T: Resource>(
+    fn insert_res<T: Resource, P:Into<PathBuf>>(
         &mut self,
-        base_name: PathBuf,
-        device: &Device,
+        base_name: P,
+        ctx: T::Context,
+        state: &mut State,
     ) -> Result<ResourceId<T>> {
+        let base_name = base_name.into();
+
         self.clean();
         trace!("loading {}", base_name.display());
         let name = base_name
@@ -172,10 +165,8 @@ impl Resources {
             (idx as u32, 0)
         };
 
-        let file = File::open(&name)
-            .with_context(|| format!("Failed to open file for {}", name.display()))?;
         self.parent_stack.push(AnyResourceId { idx, generation });
-        let res = T::load(file, display, self)
+        let res = T::load(&name,ctx, state, self)
             .with_context(|| format!("Loading resource {}", base_name.display()))?;
         self.parent_stack.pop();
 
@@ -201,7 +192,7 @@ impl Resources {
         })
     }
 
-    pub fn reload<P: AsRef<Path>>(&mut self, path: P, device: &Device) -> Result<bool> {
+    pub fn reload<P: AsRef<Path>>(&mut self, path: P, state: &mut State) -> Result<bool> {
         let orig_path = path.as_ref();
         trace!("reloading: {}", orig_path.display());
         let path = match path.as_ref().canonicalize() {
@@ -216,13 +207,12 @@ impl Resources {
                 .file
                 .take()
                 .unwrap();
-            let file = File::open(path)?;
-            let error = f.reload(file, display, self);
+            let error = f.reload(&path, state, self);
             let entry = self.res[x.idx as usize].as_filled_mut().unwrap();
             entry.file = Some(f);
             error?;
             if let Some(parent) = entry.parent {
-                self.reload_dependency(parent, x, display)?;
+                self.reload_dependency(parent, x, state)?;
             }
             self.clean();
             return Ok(true);
@@ -235,17 +225,17 @@ impl Resources {
         &mut self,
         id: AnyResourceId,
         reloaded: AnyResourceId,
-        device: &Device,
+        state: &mut State,
     ) -> Result<()> {
         let entry = self.res[id.idx as usize].as_filled_mut().unwrap();
         let mut f = entry.file.take().unwrap();
-        let reloaded = f.reload_dependency(reloaded, display, &*self);
+        let reloaded = f.reload_dependency(reloaded, state, &*self);
         let entry = self.res[id.idx as usize].as_filled_mut().unwrap();
         entry.file = Some(f);
         let reloaded = reloaded?;
         if reloaded {
             if let Some(x) = entry.parent {
-                self.reload_dependency(x, id, display)?
+                self.reload_dependency(x, id, state)?
             }
         }
         Ok(())

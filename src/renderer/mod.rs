@@ -13,8 +13,8 @@ pub struct Texture{
 
 pub struct Renderer {
     surface: wgpu::Surface,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
     sc_desc: wgpu::SwapChainDescriptor,
     swap_chain: wgpu::SwapChain,
     size: winit::dpi::PhysicalSize<u32>,
@@ -88,7 +88,6 @@ impl Renderer {
             .await?;
 
         let size = window.inner_size();
-        dbg!(size);
 
         let sc_desc = wgpu::SwapChainDescriptor {
             usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
@@ -118,7 +117,6 @@ impl Renderer {
     }
 
     pub fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>){
-        dbg!(size);
         if self.sc_desc.width == size.width && self.sc_desc.height == size.height{
             return;
         }

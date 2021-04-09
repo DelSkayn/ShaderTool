@@ -112,7 +112,6 @@ impl Resources {
                 if x.generation != id.generation {
                     return;
                 }
-                dbg!(&x.name);
                 self.names.remove(&x.name);
 
                 self.res[id.idx as usize] = ResourceEntry::Empty(Empty {

@@ -3,110 +3,107 @@
 #[macro_use]
 extern crate log;
 
-use anyhow::{Result,anyhow};
-use std::{
-    path::PathBuf,
-};
-use winit::{
-    event::{Event, WindowEvent},
+use anyhow::Result;
+use glium::Surface;
+use glutin::{
+    event::{Event, StartCause, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
+use imgui::Context as ImContext;
+use imgui_glium_renderer::Renderer;
+use imgui_winit_support::{HiDpiMode, WinitPlatform};
+use std::time::{Duration, Instant};
 
-#[derive(Debug)]
-pub enum UserEvent {
-    Reload(PathBuf),
-    Gui(gui::Event),
-}
-
+mod app;
 mod gui;
-mod renderer;
-mod watcher;
-mod resources;
-mod config;
-
-pub struct State{
-    renderer: renderer::Renderer,
-    compiler: shaderc::Compiler,
-}
+pub use app::Application;
 
 fn main() -> Result<()> {
     env_logger::init();
+    info!("starting shader tool");
+    let event_loop = EventLoop::with_user_event();
+    let wb = WindowBuilder::new().with_title("Shader Tool");
+    let cb = glium::glutin::ContextBuilder::new();
+    let display = glium::Display::new(wb, cb, &event_loop)?;
 
-    let compiler = shaderc::Compiler::new().ok_or(anyhow!("failed to initialize the shader compiler"))?;
-    let event_loop = EventLoop::<UserEvent>::with_user_event();
-    let proxy = event_loop.create_proxy();
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
-
-    let _watcher = watcher::build(proxy)?;
-
-    let mut imgui = imgui::Context::create();
+    let mut imgui = ImContext::create();
     imgui.set_ini_filename(None);
-    let mut platform = imgui_winit_support::WinitPlatform::init(&mut imgui);
+    let mut imgui_renderer = Renderer::init(&mut imgui, &display)?;
+
+    let mut platform = WinitPlatform::init(&mut imgui);
     platform.attach_window(
         imgui.io_mut(),
-        &window,
-        imgui_winit_support::HiDpiMode::Default,
+        &display.gl_window().window(),
+        HiDpiMode::Default,
     );
 
-    let renderer = futures::executor::block_on(renderer::Renderer::new(&window, &mut imgui))?;
-    let mut gui_state = gui::State::new(event_loop.create_proxy());
-    let mut state = State{
-        renderer,
-        compiler,
-    };
+    let mut app = Application::new(&event_loop, &display)?;
+
+    let mut last_frame = Instant::now();
 
     event_loop.run(move |event, _, control_flow| {
-        platform.handle_event(imgui.io_mut(), &window, &event);
+        platform.handle_event(imgui.io_mut(), display.gl_window().window(), &event);
         match event {
-            Event::MainEventsCleared => {
-                platform.prepare_frame(imgui.io_mut(), &window)
-                    .expect("Failed to prepare frame");
-                window.request_redraw();
-            }
             Event::WindowEvent {
-                ref event,
+                event: WindowEvent::CloseRequested,
                 ..
-            } => match event {
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                WindowEvent::Resized(physical_size) => {
-                    state.renderer.resize(*physical_size);
-                }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                    state.renderer.resize(**new_inner_size);
-                }
-                WindowEvent::KeyboardInput { input, .. } => match input {
-                    winit::event::KeyboardInput {
-                    state: winit::event::ElementState::Pressed,
-                    virtual_keycode: Some(winit::event::VirtualKeyCode::Escape),
-                    ..
-                    } => {gui_state.set_error("BLA")}
-                    _ => {},
-                }
-                _ => {}
-            },
-            Event::UserEvent(event) => {
-                match event {
-                    UserEvent::Gui(event) => {
-                        match event {
-                            gui::Event::Quit => { *control_flow = ControlFlow::Exit },
-                        }
-                    },
-                    UserEvent::Reload(_path) => {
-                        todo!()
-                    }
-                }
+            } => {
+                *control_flow = ControlFlow::Exit;
+            }
+            Event::WindowEvent { event, .. } => {
+                let io = imgui.io_mut();
+                let over_window = io.want_capture_mouse || io.want_capture_keyboard;
+                app.handle_window_event(event, &display, over_window);
+            }
+            Event::DeviceEvent { event, .. } => {
+                let io = imgui.io_mut();
+                let over_window = io.want_capture_mouse || io.want_capture_keyboard;
+                app.handle_device_event(event, &display, over_window);
+            }
+            Event::MainEventsCleared => {
+                app.update(&display);
             }
             Event::RedrawRequested(_) => {
-                let ui_frame = imgui.frame();
+                platform
+                    .prepare_frame(imgui.io_mut(), display.gl_window().window())
+                    .expect("failed to prepare frame");
+                let ui = imgui.frame();
 
-                gui::render(&mut gui_state, &ui_frame, &window);
+                gui::build(&mut app, &ui, &display);
 
-                platform.prepare_render(&ui_frame,&window);
+                platform.prepare_render(&ui, display.gl_window().window());
+                let mut frame = display.draw();
+                frame.clear_color_and_depth((0.0, 0.0, 0.0, 1.0), 1.0);
+                app.render(&mut frame).unwrap();
 
-                state.renderer.render(ui_frame.render()).unwrap();
+                let draw_data = ui.render();
+
+                imgui_renderer.render(&mut frame, &draw_data).unwrap();
+
+                frame.finish().unwrap();
+
+                *control_flow =
+                    ControlFlow::WaitUntil(last_frame + Duration::from_secs_f32(1.0 / 60.0));
+                last_frame = Instant::now();
+
+                if !app.should_run {
+                    *control_flow = ControlFlow::Exit;
+                }
             }
+            Event::NewEvents(StartCause::WaitCancelled {
+                requested_resume, ..
+            }) => {
+                *control_flow = ControlFlow::WaitUntil(requested_resume.unwrap());
+            }
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                display.gl_window().window().request_redraw();
+            }
+            Event::NewEvents(StartCause::Init) => {
+                display.gl_window().window().request_redraw();
+            }
+            Event::UserEvent(x) => app.handle_event(x, &display),
             _ => {}
         }
-    })
+    });
 }

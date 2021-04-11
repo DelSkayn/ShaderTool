@@ -138,7 +138,6 @@ impl Renderer {
         let mut encoder = self.device.create_command_encoder(&Default::default());
 
         {
-
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("imgui render pass"),
                 color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {

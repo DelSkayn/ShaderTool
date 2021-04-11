@@ -3,6 +3,7 @@ use crate::{
     resources::{AnyResourceId, ResourceId, Resources},
     State,
 };
+use shaderc::ShaderKind;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
@@ -30,11 +31,14 @@ pub struct LoadedPass {
 
 impl LoadedPass {
     pub fn new(
-        _pass: &Pass,
-        _state: &mut State,
+        pass: &Pass,
+        state: &mut State,
         _objects: &HashMap<String, Arc<LoadedObject>>,
-        _res: &mut Resources,
+        res: &mut Resources,
     ) -> Result<Self> {
+        let _vertex_shader = res.insert::<Shader,_>(&pass.vertex_shader,ShaderKind::Vertex,state)?;
+        let _fragment_shader = res.insert::<Shader,_>(&pass.fragment_shader,ShaderKind::Fragment,state)?;
+
         todo!()
     }
 

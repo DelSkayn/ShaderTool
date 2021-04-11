@@ -122,7 +122,7 @@ impl Resources {
     }
 
 
-    fn insert_res<T: Resource, P:Into<PathBuf>>(
+    pub fn insert<T: Resource, P:Into<PathBuf>>(
         &mut self,
         base_name: P,
         ctx: T::Context,

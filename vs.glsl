@@ -7,8 +7,6 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
-uniform vec3 light_pos = vec3(0.5, 10.0,0.5);
-
 out vec3 color;
 out vec3 pos;
 out vec3 norm;

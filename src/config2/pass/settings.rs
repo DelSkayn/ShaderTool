@@ -1,16 +1,23 @@
-use serde_derive::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+use glium::draw_parameters::{
+    self as dp, BackfaceCullingMode, DepthClamp, DepthTest, DrawParameters,
+};
+
+#[derive(Serialize, Deserialize)]
+#[serde(remote = "DepthClamp")]
 #[serde(rename_all = "snake_case")]
-pub enum DepthClamp {
+pub enum DepthClampDef {
     NoClamp,
     Clamp,
     ClampNear,
     ClampFar,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub enum DepthTest {
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(remote = "DepthTest")]
+pub enum DepthTestDef {
     #[serde(rename = "ignore")]
     Ignore,
     #[serde(rename = "overwrite")]
@@ -44,10 +51,12 @@ fn test() -> DepthTest {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Depth {
     #[serde(default = "test")]
+    #[serde(with = "DepthTestDef")]
     compare: DepthTest,
     #[serde(default = "t")]
     write: bool,
     #[serde(default = "clamp")]
+    #[serde(with = "DepthClampDef")]
     clamp: DepthClamp,
 }
 
@@ -65,8 +74,9 @@ fn cull() -> BackfaceCullingMode {
     BackfaceCullingMode::CullCounterClockwise
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub enum BackfaceCullingMode {
+#[derive(Deserialize, Serialize)]
+#[serde(remote = "BackfaceCullingMode")]
+pub enum BackfaceCullingModeDef {
     #[serde(rename = "disabled")]
     CullingDisabled,
     #[serde(rename = "counter_clockwise")]
@@ -79,6 +89,7 @@ pub enum BackfaceCullingMode {
 pub struct Settings {
     #[serde(default)]
     depth: Depth,
+    #[serde(with = "BackfaceCullingModeDef")]
     #[serde(default = "cull")]
     cull: BackfaceCullingMode,
 }
@@ -88,6 +99,21 @@ impl Default for Settings {
         Settings {
             depth: Depth::default(),
             cull: cull(),
+        }
+    }
+}
+
+impl Settings {
+    pub fn to_params(&self) -> DrawParameters<'static> {
+        DrawParameters {
+            depth: dp::Depth {
+                test: self.depth.compare,
+                write: self.depth.write,
+                clamp: self.depth.clamp,
+                ..Default::default()
+            },
+            backface_culling: self.cull,
+            ..DrawParameters::default()
         }
     }
 }

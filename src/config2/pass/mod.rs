@@ -20,12 +20,26 @@ pub struct Pass {
     settings: Settings,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PassTarget {
+    Window,
+    Target(String),
+}
+
+impl Default for PassTarget {
+    fn default() -> Self {
+        PassTarget::Window
+    }
+}
+
 pub struct LoadedPass {
     pub vertex_shader: ResourceId<Shader>,
     pub fragment_shader: ResourceId<Shader>,
     program: Program,
     objects: Vec<Arc<LoadedObject>>,
     draw_parameters: DrawParameters<'static>,
+    target: PassTarget,
 }
 
 impl LoadedPass {
@@ -64,7 +78,7 @@ impl LoadedPass {
             fragment_shader,
             program,
             objects,
-            draw_parameters: pass.settings.to_params()
+            draw_parameters: pass.settings.to_params(),
         })
     }
 

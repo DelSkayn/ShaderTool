@@ -1,18 +1,7 @@
-use crate::State;
+use crate::render::Vertex;
 use anyhow::Result;
-use serde_derive::{Deserialize, Serialize};
-use wgpu::{util::DeviceExt, Buffer};
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct Vertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    tex_coord: [f32; 2],
-}
-
-unsafe impl bytemuck::Pod for Vertex {}
-unsafe impl bytemuck::Zeroable for Vertex {}
+use glium::{Display, IndexBuffer, VertexBuffer};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Cube {
@@ -25,7 +14,10 @@ pub struct Cube {
 }
 
 impl Cube {
-    pub fn to_buffers(&self, state: &State) -> Result<(Buffer, Buffer)> {
+    pub fn to_buffers(
+        &self,
+        display: &Display,
+    ) -> Result<(VertexBuffer<Vertex>, IndexBuffer<u32>)> {
         let x = self.width / 2.0;
         let y = self.height / 2.0;
         let z = self.depth / 2.0;
@@ -184,23 +176,12 @@ impl Cube {
             })
         }
 
-        let vertex_buffer =
-            state
-                .renderer
-                .device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: None,
-                    contents: bytemuck::bytes_of(verticies),
-                    usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
-                });
-        let index_buffer = state
-                .renderer
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::bytes_of(indicies),
-                usage: wgpu::BufferUsage::INDEX | wgpu::BufferUsage::COPY_DST,
-            });
+        let vertex_buffer = VertexBuffer::immutable(display, verticies)?;
+        let index_buffer = IndexBuffer::<u32>::immutable(
+            display,
+            glium::index::PrimitiveType::TrianglesList,
+            &index,
+        )?;
 
         Ok((vertex_buffer, index_buffer))
     }
@@ -229,14 +210,17 @@ pub enum Geometry {
 }
 
 impl Geometry {
-    pub fn to_buffers(&self, state: &mut State) -> Result<(Buffer, Buffer)> {
+    pub fn to_buffers(
+        &self,
+        display: &Display,
+    ) -> Result<(VertexBuffer<Vertex>, IndexBuffer<u32>)> {
         match &self {
-            Geometry::Cube(ref x) => x.to_buffers(state),
-            Geometry::ScreenQuad => Ok(Self::screen_quad(state)),
+            Geometry::Cube(ref x) => x.to_buffers(display),
+            Geometry::ScreenQuad => Ok(Self::screen_quad(display)),
         }
     }
 
-    fn screen_quad(state: &State) -> (Buffer, Buffer) {
+    fn screen_quad(display: &Display) -> (VertexBuffer<Vertex>, IndexBuffer<u32>) {
         let verticies = vec![
             Vertex {
                 position: [-1.0, -1.0, 0.0],
@@ -262,24 +246,13 @@ impl Geometry {
 
         let indicies: Vec<u32> = vec![0, 3, 2, 0, 2, 1];
 
-        let vertex_buffer = state
-            .renderer
-            .device
-            
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(verticies.as_slice()),
-                usage: wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
-            });
-        let index_buffer = state
-            .renderer
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&indicies),
-                usage: wgpu::BufferUsage::INDEX | wgpu::BufferUsage::COPY_DST,
-            });
-
-        (vertex_buffer, index_buffer)
+        let vertex = VertexBuffer::immutable(display, &verticies).unwrap();
+        let index = IndexBuffer::immutable(
+            display,
+            glium::index::PrimitiveType::TrianglesList,
+            &indicies,
+        )
+        .unwrap();
+        (vertex, index)
     }
 }

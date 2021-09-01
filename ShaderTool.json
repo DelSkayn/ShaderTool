@@ -1,39 +1,29 @@
 {
     "objects": [
         {
+            "name": "foo",
+            "kind": {"geometry": {"cube": {}} },
+            "scale":[1.0,2.0,0.3],
+            "rotation":[90.0,0.0,45.0]
+        },
+        {
             "name": "bar",
-            "type": {"geometry": {"cube": {}} }
-        },
-        {
-            "name": "quad",
-            "type": {"geometry": "screen_quad"}
-        },
-        {
-            "name": "cube",
-            "type": {"geometry": {"cube": {}
-            }},
-            "position": [0.0, 1.0, 1.0],
-            "scale": [10.0, 0.5, 1.0],
-            "rotation": [0.0,10.0,10.0]
+            "kind": {"geometry": "screen_quad"}
         }
     ],
+    "camera":{
+        "kind": { "Orbital":{
+            "distance": 10.0,
+            "center": [0.0,0.0,0.0]
+        }},
+        "fov":20
+    },
     "passes":[{
         "vertex_shader": "vs.glsl",
         "fragment_shader": "fs.glsl",
-        "objects": ["bar","cube"],
+        "objects": ["foo","bar"],
         "settings": {
             "cull": "counter_clockwise"
-        }
-    },{
-        "vertex_shader": "postvs.glsl",
-        "fragment_shader": "postfs.glsl",
-        "objects": ["quad"],
-        "settings": {
-            "depth":{
-                "compare": "less",
-                "write": false,
-                "clamp": "clamp"
-            }
         }
     }]
 }

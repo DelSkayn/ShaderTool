@@ -11,6 +11,13 @@
             "kind": {"geometry": "screen_quad"}
         }
     ],
+    "textures":[
+        {
+            "name": "cat",
+            "kind": {"File": "cat.jpg"},
+            "wrap": "mirror"
+        }
+    ],
     "camera":{
         "kind": { "Orbital":{
             "distance": 10.0,
@@ -21,6 +28,7 @@
     "passes":[{
         "vertex_shader": "vs.glsl",
         "fragment_shader": "fs.glsl",
+        "textures": ["cat"],
         "objects": ["foo","bar"],
         "settings": {
             "cull": "counter_clockwise"

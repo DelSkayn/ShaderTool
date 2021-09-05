@@ -5,6 +5,9 @@ use serde::Deserialize;
 mod settings;
 use settings::Settings;
 
+mod texture;
+pub use texture::*;
+
 #[derive(Deserialize, Debug)]
 pub enum ObjectKind {
     #[serde(rename = "geometry")]
@@ -28,12 +31,20 @@ pub struct Object {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum TextureRef {
+    Name(String),
+    Renamed { name: String, r#as: String },
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Pass {
     pub vertex_shader: String,
     pub fragment_shader: String,
     #[serde(default)]
     pub objects: Vec<String>,
     #[serde(default)]
+    pub textures: Vec<TextureRef>,
     pub settings: Settings,
 }
 
@@ -89,4 +100,14 @@ pub struct Config {
     pub passes: Vec<Pass>,
     #[serde(default)]
     pub camera: Camera,
+    #[serde(default)]
+    pub textures: Vec<Texture>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum Color {
+    RGB { r: f32, g: f32, b: f32 },
+    RGBA { r: f32, g: f32, b: f32, a: f32 },
+    HSV { h: f32, s: f32, v: f32 },
 }

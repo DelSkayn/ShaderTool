@@ -6,6 +6,7 @@ use std::{
     fmt,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
+    ptr,
     rc::{Rc, Weak},
 };
 
@@ -63,7 +64,7 @@ impl<A: Asset + 'static> DynAsset for RefCell<AssetData<A>> {
 
 impl DynAssetRef {
     pub fn same<A: Asset + 'static>(&self, rf: &AssetRef<A>) -> bool {
-        Rc::as_ptr(&self.0) as *const _ == Rc::as_ptr(&rf.0)
+        ptr::eq(Rc::as_ptr(&self.0) as *const _, Rc::as_ptr(&rf.0))
     }
 }
 
@@ -144,7 +145,6 @@ impl<A: Asset + 'static> AssetRef<A> {
                 Some(x) => x,
                 _ => return,
             };
-            dbg!(children.len());
             for a in children.into_iter() {
                 if let Some(x) = a.upgrade() {
                     x.set_parent(weak.clone())
@@ -174,11 +174,10 @@ impl<A: Asset + 'static> AssetRef<A> {
 }
 
 pub fn reload(path: &Path) -> Result<()> {
+    trace!("reloading assets: {}", path.display());
     let mut reload = Vec::new();
     ACTIVE_ASSETS.with(|v| {
-        dbg!(v.borrow_mut().keys().collect::<Vec<_>>());
         if let Some(x) = v.borrow_mut().get_mut(path) {
-            println!("found path");
             for a in x.iter() {
                 if let Some(a) = a.upgrade() {
                     reload.push(a);
@@ -187,7 +186,6 @@ pub fn reload(path: &Path) -> Result<()> {
         }
     });
     for a in reload.into_iter() {
-        println!("reloaded");
         a.reload(path)?;
         let mut cur = a;
         while let Some(x) = cur.get_parent().and_then(|x| x.upgrade()) {

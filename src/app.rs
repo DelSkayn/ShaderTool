@@ -186,6 +186,7 @@ impl App {
                     } else {
                         AssetRef::build(Config::load, "./ShaderTool.json", &self.display)
                     };
+                    info!("trying to reload config");
 
                     match config {
                         Ok(x) => {
@@ -197,9 +198,9 @@ impl App {
                         }
                     }
                 } else {
-                    match asset::reload(&dbg!(path)) {
+                    match asset::reload(&path) {
                         Err(e) => {
-                            self.model.set_error(Some(format!("{:?}", dbg!(e))));
+                            self.model.set_error(Some(format!("{:?}", e)));
                         }
                         Ok(()) => self.model.set_error(None),
                     }

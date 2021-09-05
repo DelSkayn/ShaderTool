@@ -3,16 +3,19 @@ use crate::render::Vertex;
 use anyhow::{Context, Result};
 use glam::f32::{Mat4, Quat, Vec2, Vec3};
 use glium::glutin::event::DeviceEvent;
+use glium::DrawParameters;
 use glium::{
     glutin::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
-    uniform, Display, Frame, IndexBuffer, Program, VertexBuffer,
+    Display, IndexBuffer, Program, VertexBuffer,
 };
-use glium::{DrawParameters, Surface};
 use std::{collections::HashMap, ffi::OsStr, fs::File, io::Read, path::Path};
 
 use self::ser::CameraKind;
 
 mod ser;
+mod texture;
+use texture::LoadedTexture;
+mod render;
 
 #[derive(Debug)]
 pub struct Shader {
@@ -59,6 +62,7 @@ pub struct LoadedPasses {
     program: Program,
     draw_parameters: DrawParameters<'static>,
     objects: Vec<usize>,
+    textures: Vec<(usize, String)>,
 }
 
 impl LoadedPasses {
@@ -79,6 +83,7 @@ pub struct Config {
     config: ser::Config,
     camera: LoadedCamera,
     objects: Vec<LoadedObject>,
+    textures: Vec<LoadedTexture>,
     passes: Vec<LoadedPasses>,
     display: Display,
 }
@@ -92,15 +97,27 @@ impl Config {
             _ => bail!("Invalid config extension!"),
         };
 
-        let mut name_match = HashMap::new();
+        let mut object_name_match = HashMap::new();
 
         let objects = config
             .objects
             .iter()
             .enumerate()
             .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, (idx, x)| {
-                name_match.insert(x.name.clone(), idx);
+                object_name_match.insert(x.name.clone(), idx);
                 acc.push(Self::load_object(x, display)?);
+                Result::Ok(acc)
+            })?;
+
+        let mut texture_name_match = HashMap::new();
+
+        let textures = config
+            .textures
+            .iter()
+            .enumerate()
+            .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, (idx, x)| {
+                texture_name_match.insert(x.name.clone(), idx);
+                acc.push(LoadedTexture::load(x, display)?);
                 Result::Ok(acc)
             })?;
 
@@ -109,7 +126,13 @@ impl Config {
             .iter()
             .enumerate()
             .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, (idx, x)| {
-                acc.push(Self::load_pass(x, &name_match, display, idx)?);
+                acc.push(Self::load_pass(
+                    x,
+                    &object_name_match,
+                    &texture_name_match,
+                    display,
+                    idx,
+                )?);
                 Result::Ok(acc)
             })?;
 
@@ -121,10 +144,13 @@ impl Config {
             },
         };
 
+        debug!("reloaded config: {:#?}", &config);
+
         Ok(Config {
             mouse_pressed: false,
             config,
             objects,
+            textures,
             passes,
             display: display.clone(),
             camera,
@@ -133,16 +159,37 @@ impl Config {
 
     pub fn load_pass(
         pass: &ser::Pass,
-        name_match: &HashMap<String, usize>,
+        object_name_match: &HashMap<String, usize>,
+        texture_name_match: &HashMap<String, usize>,
         display: &Display,
         pass_num: usize,
     ) -> Result<LoadedPasses> {
         let objects = pass.objects.iter().try_fold(Vec::new(), |mut acc, x| {
-            if let Some(x) = name_match.get(x).copied() {
+            if let Some(x) = object_name_match.get(x).copied() {
                 acc.push(x);
             } else {
                 bail!("Could not find object '{}' for pass {}", x, pass_num)
             }
+            Ok(acc)
+        })?;
+
+        let textures = pass.textures.iter().try_fold(Vec::new(), |mut acc, x| {
+            match x {
+                ser::TextureRef::Renamed { name, r#as } => {
+                    if let Some(x) = texture_name_match.get(name).copied() {
+                        acc.push((x, r#as.clone()));
+                    } else {
+                        bail!("Could not find texture '{}' for pass {}", name, pass_num)
+                    }
+                }
+                ser::TextureRef::Name(name) => {
+                    if let Some(x) = texture_name_match.get(name).copied() {
+                        acc.push((x, name.clone()));
+                    } else {
+                        bail!("Could not find texture '{}' for pass {}", name, pass_num)
+                    }
+                }
+            };
             Ok(acc)
         })?;
 
@@ -166,6 +213,7 @@ impl Config {
             fragment,
             objects,
             draw_parameters,
+            textures,
             program,
         })
     }
@@ -248,50 +296,6 @@ impl Config {
             _ => {}
         }
     }
-
-    pub fn get_camera_matrix(&self) -> Mat4 {
-        match self.camera {
-            LoadedCamera::LookAt { from, to, up } => Mat4::look_at_lh(from, to, up),
-            LoadedCamera::Orbital { state, distance } => {
-                let rotation_y = Quat::from_rotation_y(state.x * 0.01);
-                let rotation_x = Quat::from_axis_angle(rotation_y * Vec3::X, -state.y * 0.01);
-                let rotation = (rotation_x * rotation_y).normalize();
-                let position = rotation * Vec3::new(0.0, 0.0, -1.0) * distance;
-
-                Mat4::from_quat(rotation.conjugate()) * Mat4::from_translation(-position)
-            }
-        }
-    }
-
-    pub fn render(&self, frame: &mut Frame) -> Result<()> {
-        let camera_mat = self.get_camera_matrix();
-        let dimensions = frame.get_dimensions();
-        let aspect_ratio = dimensions.0 as f32 / dimensions.1 as f32;
-        let perspective_mat = Mat4::perspective_lh(
-            self.config.camera.fov.to_radians(),
-            aspect_ratio,
-            0.01,
-            100.0,
-        );
-
-        for pass in self.passes.iter() {
-            for object in pass.objects.iter().copied() {
-                let object = &self.objects[object];
-                frame.draw(
-                    &object.vertex,
-                    &object.index,
-                    &pass.program,
-                    &uniform! {
-                        model: object.matrix.to_cols_array_2d(),
-                        view: camera_mat.to_cols_array_2d(),
-                        projection: perspective_mat.to_cols_array_2d(),
-                    },
-                    &pass.draw_parameters,
-                )?;
-            }
-        }
-        Ok(())
-    }
 }
 
 impl Asset for Config {
@@ -313,6 +317,13 @@ impl Asset for Config {
                 return Ok(true);
             }
         }
+
+        for p in self.textures.iter_mut() {
+            if p.try_reload(asset, &self.display)? {
+                return Ok(true);
+            }
+        }
+
         Ok(false)
     }
 }

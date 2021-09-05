@@ -8,7 +8,7 @@ use glium::{
     glutin::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     Display, IndexBuffer, Program, VertexBuffer,
 };
-use std::{collections::HashMap, ffi::OsStr, fs::File, io::Read, path::Path};
+use std::{collections::HashMap, ffi::OsStr, fmt::Write, fs::File, io::Read, path::Path};
 
 use self::ser::CameraKind;
 
@@ -168,7 +168,22 @@ impl Config {
             if let Some(x) = object_name_match.get(x).copied() {
                 acc.push(x);
             } else {
-                bail!("Could not find object '{}' for pass {}", x, pass_num)
+                let mut expects = String::new();
+                write!(expects, "Expected one of ").unwrap();
+                for (idx, k) in object_name_match.keys().enumerate() {
+                    if idx != 0 {
+                        write!(expects, ",").unwrap();
+                    }
+                    write!(expects, "'{}'", k).unwrap();
+                }
+                write!(expects, ".").unwrap();
+
+                bail!(
+                    "Could not find object '{}' for pass {}. {}",
+                    x,
+                    pass_num,
+                    expects
+                )
             }
             Ok(acc)
         })?;
@@ -179,14 +194,44 @@ impl Config {
                     if let Some(x) = texture_name_match.get(name).copied() {
                         acc.push((x, r#as.clone()));
                     } else {
-                        bail!("Could not find texture '{}' for pass {}", name, pass_num)
+                        let mut expects = String::new();
+                        write!(expects, "Expected one of ").unwrap();
+                        for (idx, k) in texture_name_match.keys().enumerate() {
+                            if idx != 0 {
+                                write!(expects, ",").unwrap();
+                            }
+                            write!(expects, "'{}'", k).unwrap();
+                        }
+                        write!(expects, ".").unwrap();
+
+                        bail!(
+                            "Could not find texture '{}' for pass {}. {}",
+                            name,
+                            pass_num,
+                            expects
+                        )
                     }
                 }
                 ser::TextureRef::Name(name) => {
                     if let Some(x) = texture_name_match.get(name).copied() {
                         acc.push((x, name.clone()));
                     } else {
-                        bail!("Could not find texture '{}' for pass {}", name, pass_num)
+                        let mut expects = String::new();
+                        write!(expects, "Expected one of ").unwrap();
+                        for (idx, k) in texture_name_match.keys().enumerate() {
+                            if idx != 0 {
+                                write!(expects, ",").unwrap();
+                            }
+                            write!(expects, "'{}'", k).unwrap();
+                        }
+                        write!(expects, ".").unwrap();
+
+                        bail!(
+                            "Could not find texture '{}' for pass {}. {}",
+                            name,
+                            pass_num,
+                            expects
+                        )
                     }
                 }
             };

@@ -11,6 +11,7 @@ uniform mat4 projection;
 out vec3 color;
 out vec3 pos;
 out vec3 norm;
+out vec3 tangent;
 out vec2 text_coord;
 
 void main(){

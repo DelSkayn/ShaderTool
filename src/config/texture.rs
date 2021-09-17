@@ -1,10 +1,10 @@
 use std::path::Path;
 
-use super::ser;
+use super::ser::{self, TextureSize};
 use crate::asset::{Asset, AssetRef, DynAssetRef};
 use anyhow::{Context, Result};
 use glium::{
-    texture::{RawImage2d, Texture2d},
+    texture::{RawImage2d, Texture2d, UncompressedFloatFormat},
     Display,
 };
 use image::RgbaImage;
@@ -12,6 +12,10 @@ use image::RgbaImage;
 #[derive(Debug)]
 pub enum LoadedTextureKind {
     File(AssetRef<FileTexture>),
+    Empty {
+        size: TextureSize,
+        format: UncompressedFloatFormat,
+    },
 }
 
 #[derive(Debug)]
@@ -46,6 +50,7 @@ pub struct LoadedTexture {
 }
 
 impl LoadedTexture {
+    /// Load a texture from a config.
     pub fn load(config: &ser::Texture, display: &Display) -> Result<Self> {
         let (kind, texture) = match config.kind {
             ser::TextureKind::File(ref x) => {
@@ -59,6 +64,27 @@ impl LoadedTexture {
                     .context("failed to load texture")?;
                 (LoadedTextureKind::File(loaded), texture)
             }
+            ser::TextureKind::Empty(ref x) => {
+                let size = match x.size {
+                    TextureSize::ViewPort => display.get_framebuffer_dimensions(),
+                    TextureSize::Size { width, height } => (width, height),
+                };
+                let texture = Texture2d::empty_with_format(
+                    display,
+                    x.format,
+                    config.mipmaps.into(),
+                    size.0,
+                    size.1,
+                )
+                .context("failed to create texture")?;
+                (
+                    LoadedTextureKind::Empty {
+                        size: x.size,
+                        format: x.format,
+                    },
+                    texture,
+                )
+            }
         };
         Ok(LoadedTexture {
             kind,
@@ -67,7 +93,10 @@ impl LoadedTexture {
         })
     }
 
-    pub fn try_reload(&mut self, asset: &DynAssetRef, display: &Display) -> Result<bool> {
+    /// Reloads a depended texture if present.
+    ///
+    /// Returns true if a dependecy was reloaded.
+    pub fn try_reload_dependecy(&mut self, asset: &DynAssetRef, display: &Display) -> Result<bool> {
         match self.kind {
             LoadedTextureKind::File(ref x) => {
                 if asset.same(x) {
@@ -80,7 +109,29 @@ impl LoadedTexture {
                     return Ok(true);
                 }
             }
+            LoadedTextureKind::Empty { .. } => {}
         }
         Ok(false)
+    }
+
+    /// Resizes the texture if the texture size is a factor of the viewport size.
+    pub fn resize(&mut self, dimensions: (u32, u32), display: &Display) -> Result<()> {
+        match self.kind {
+            LoadedTextureKind::File(_) => {}
+            LoadedTextureKind::Empty { size, format } => match size {
+                TextureSize::Size { .. } => {}
+                TextureSize::ViewPort => {
+                    self.texture = Texture2d::empty_with_format(
+                        display,
+                        format,
+                        self.config.mipmaps.into(),
+                        dimensions.0,
+                        dimensions.1,
+                    )
+                    .context("failed to create texture")?;
+                }
+            },
+        }
+        Ok(())
     }
 }

@@ -1,10 +1,10 @@
-use super::{Config, LoadedCamera};
+use super::{Config, LoadedCamera, TextureLink};
 use anyhow::Result;
 use glam::f32::{Mat4, Quat, Vec3};
 use std::collections::HashMap;
 
 use glium::{
-    uniforms::{AsUniformValue, Sampler, UniformValue, Uniforms, UniformsStorage},
+    uniforms::{AsUniformValue, Sampler, UniformValue, Uniforms},
     Frame, Surface,
 };
 
@@ -64,7 +64,10 @@ impl Config {
                 .textures
                 .iter()
                 .map(|(text_id, name)| {
-                    let texture = &self.textures[*text_id];
+                    let texture = match text_id {
+                        TextureLink::Target(text_id) => &self.textures[*text_id],
+                        _ => todo!(),
+                    };
                     let sampler = Sampler::new(&texture.texture);
                     let sampler = texture.config.apply_to_sampler(sampler);
                     (name, sampler)

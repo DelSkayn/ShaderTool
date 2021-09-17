@@ -40,7 +40,7 @@ impl App {
         let ron_exists = Path::new("./ShaderTool.ron").exists();
         let json_exists = Path::new("./ShaderTool.json").exists();
         if !ron_exists && !json_exists {
-            bail!("Could not find config file, create either a \"ShaderTool.ron\" or a \"ShaderTool.json\" file in the current directory");
+            bail!("Could not find config file, create either a `ShaderTool.ron` or a `ShaderTool.json` file in the current directory");
         } else if json_exists && ron_exists {
             warn!(
                 "Both a ShaderTool.ron and ShaderTool.json exist in this directory! defaulting to ron"
@@ -63,6 +63,7 @@ impl App {
 
         let config = config
             .map_err(|e| {
+                error!("{:?}", e);
                 model.set_error(Some(format!("{:?}", e)));
                 e
             })
@@ -194,12 +195,14 @@ impl App {
                             self.model.set_error(None);
                         }
                         Err(e) => {
+                            error!("{:?}", e);
                             self.model.set_error(Some(format!("{:?}", e)));
                         }
                     }
                 } else {
                     match asset::reload(&path) {
                         Err(e) => {
+                            error!("{:?}", e);
                             self.model.set_error(Some(format!("{:?}", e)));
                         }
                         Ok(()) => self.model.set_error(None),

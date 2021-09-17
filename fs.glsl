@@ -13,11 +13,14 @@ in vec3 norm;
 in vec2 text_coord;
 
 void main(){
-    vec3 diffuse_color = texture(texture_cat,text_coord).rgb;
+    vec3 c = texture(texture_cat,text_coord).rgb;
+    vec3 diffuse_color = c * (norm + 1.0) / 2.0;
     vec3 light_pos = mat3(view) * light_pos;
 
+    c = normalize(c);
+
     vec3 L = normalize(light_pos - pos);
-    vec3 N = normalize(norm);
+    vec3 N = normalize((norm + c) / 2);
     float lamb = max(dot(N,L), 0.0);
     float spec = 0.0;
     if (lamb > 0.0){

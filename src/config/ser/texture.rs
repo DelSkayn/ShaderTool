@@ -1,12 +1,37 @@
 use glium::{
-    texture::MipmapsOption,
+    texture::{MipmapsOption, UncompressedFloatFormat},
     uniforms::{MagnifySamplerFilter, MinifySamplerFilter, Sampler, SamplerWrapFunction},
 };
 use serde::Deserialize;
 
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub enum TextureSize {
+    ViewPort,
+    Size { width: u32, height: u32 },
+}
+
+impl Default for TextureSize {
+    fn default() -> Self {
+        TextureSize::ViewPort
+    }
+}
+
+fn text_format() -> UncompressedFloatFormat {
+    UncompressedFloatFormat::F32F32F32F32
+}
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+pub struct EmptyTexture {
+    pub size: TextureSize,
+    #[serde(with = "UncompressedFloatFormatDef")]
+    #[serde(default = "text_format")]
+    pub format: UncompressedFloatFormat,
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub enum TextureKind {
     File(String),
+    Empty(EmptyTexture),
 }
 
 fn wrap() -> SamplerWrapFunction {
@@ -112,4 +137,135 @@ impl Default for Mipmaps {
     fn default() -> Self {
         Mipmaps::None
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(remote = "UncompressedFloatFormat")]
+pub enum UncompressedFloatFormatDef {
+    U8,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    I8,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    U16,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    I16,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    U8U8,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    I8I8,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    U16U16,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    I16I16,
+    ///
+    U3U3U2,
+    ///
+    U4U4U4,
+    ///
+    U5U5U5,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    U8U8U8,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    I8I8I8,
+    ///
+    U10U10U10,
+    ///
+    U12U12U12,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    U16U16U16,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    I16I16I16,
+    ///
+    U2U2U2U2,
+    ///
+    U4U4U4U4,
+    ///
+    U5U5U5U1,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    U8U8U8U8,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    I8I8I8I8,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    U10U10U10U2,
+    ///
+    U12U12U12U12,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    U16U16U16U16,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    I16I16I16I16,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    F16,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    F16F16,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    F16F16F16,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    F16F16F16F16,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    F32,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    F32F32,
+    ///
+    ///
+    /// Guaranteed to be supported for textures.
+    F32F32F32,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    F32F32F32F32,
+    ///
+    ///
+    /// Guaranteed to be supported for both textures and renderbuffers.
+    F11F11F10,
+    /// Uses three components of 9 bits of precision that all share the same exponent.
+    ///
+    /// Use this format only if all the components are approximately equal.
+    ///
+    /// Guaranteed to be supported for textures.
+    F9F9F9,
 }

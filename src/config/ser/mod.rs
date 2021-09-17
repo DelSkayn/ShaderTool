@@ -38,6 +38,27 @@ pub enum TextureRef {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct PassTargetBuffer {
+    #[serde(default)]
+    color: Vec<String>,
+    #[serde(default)]
+    depth: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum PassTarget {
+    Frame,
+    Buffer(PassTargetBuffer),
+}
+
+impl Default for PassTarget {
+    fn default() -> Self {
+        PassTarget::Frame
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Pass {
     pub vertex_shader: String,
     pub fragment_shader: String,
@@ -45,6 +66,9 @@ pub struct Pass {
     pub objects: Vec<String>,
     #[serde(default)]
     pub textures: Vec<TextureRef>,
+    #[serde(default)]
+    pub target: PassTarget,
+    #[serde(default)]
     pub settings: Settings,
 }
 

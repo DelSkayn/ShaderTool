@@ -1,4 +1,4 @@
-use crate::asset::{Asset, AssetRef};
+use crate::asset::{Asset, AssetRef, DynAssetRef};
 use crate::render::Vertex;
 use anyhow::{Context, Result};
 use glam::f32::{Mat4, Quat, Vec2, Vec3};
@@ -62,19 +62,44 @@ pub struct LoadedPasses {
     program: Program,
     draw_parameters: DrawParameters<'static>,
     objects: Vec<usize>,
-    textures: Vec<(usize, String)>,
+    textures: Vec<(TextureLink, String)>,
 }
 
 impl LoadedPasses {
-    pub fn reload(&mut self, display: &Display) -> Result<()> {
-        self.program = Program::from_source(
-            display,
-            &self.vertex.borrow().source,
-            &self.fragment.borrow().source,
-            None,
-        )?;
-        Ok(())
+    /// Reload a pass, if any of its dependecies reloaded.
+    ///
+    /// Returns true if the pass reloaded.
+    pub fn try_reload_dependency(
+        &mut self,
+        asset: &DynAssetRef,
+        display: &Display,
+    ) -> Result<bool> {
+        if asset.same(&self.vertex) || asset.same(&self.fragment) {
+            let program = Program::from_source(
+                display,
+                &self.vertex.borrow().source,
+                &self.fragment.borrow().source,
+                None,
+            )?;
+
+            for (name, _) in program.attributes() {
+                match name.as_str() {
+                    "position" | "normal" | "tex_coord" => {}
+                    x => bail!("Invalid attribute `{}` used in shader", x),
+                }
+            }
+
+            self.program = program;
+            return Ok(true);
+        }
+        Ok(false)
     }
+}
+
+#[derive(Debug)]
+enum TextureLink {
+    Target(usize),
+    Texture(usize),
 }
 
 #[derive(Debug)]
@@ -157,6 +182,59 @@ impl Config {
         })
     }
 
+    fn link_texture(
+        texture: &ser::TextureRef,
+        texture_name_match: &HashMap<String, usize>,
+        pass_num: usize,
+    ) -> Result<(TextureLink, String)> {
+        match texture {
+            ser::TextureRef::Renamed { name, r#as } => {
+                if let Some(x) = texture_name_match.get(name).copied() {
+                    return Ok((TextureLink::Texture(x), r#as.clone()));
+                } else {
+                    let mut expects = String::new();
+                    write!(expects, "Expected one of ").unwrap();
+                    for (idx, k) in texture_name_match.keys().enumerate() {
+                        if idx != 0 {
+                            write!(expects, ",").unwrap();
+                        }
+                        write!(expects, "`{}`", k).unwrap();
+                    }
+                    write!(expects, ".").unwrap();
+
+                    bail!(
+                        "Could not find texture `{}` for pass {}. {}",
+                        name,
+                        pass_num,
+                        expects
+                    )
+                }
+            }
+            ser::TextureRef::Name(name) => {
+                if let Some(x) = texture_name_match.get(name).copied() {
+                    return Ok((TextureLink::Target(x), name.clone()));
+                } else {
+                    let mut expects = String::new();
+                    write!(expects, "Expected one of ").unwrap();
+                    for (idx, k) in texture_name_match.keys().enumerate() {
+                        if idx != 0 {
+                            write!(expects, ",").unwrap();
+                        }
+                        write!(expects, "`{}`", k).unwrap();
+                    }
+                    write!(expects, ".").unwrap();
+
+                    bail!(
+                        "Could not find texture `{}` for pass {}. {}",
+                        name,
+                        pass_num,
+                        expects
+                    )
+                }
+            }
+        };
+    }
+
     pub fn load_pass(
         pass: &ser::Pass,
         object_name_match: &HashMap<String, usize>,
@@ -174,12 +252,12 @@ impl Config {
                     if idx != 0 {
                         write!(expects, ",").unwrap();
                     }
-                    write!(expects, "'{}'", k).unwrap();
+                    write!(expects, "`{}`", k).unwrap();
                 }
                 write!(expects, ".").unwrap();
 
                 bail!(
-                    "Could not find object '{}' for pass {}. {}",
+                    "Could not find object `{}` for pass {}. {}",
                     x,
                     pass_num,
                     expects
@@ -188,55 +266,13 @@ impl Config {
             Ok(acc)
         })?;
 
-        let textures = pass.textures.iter().try_fold(Vec::new(), |mut acc, x| {
-            match x {
-                ser::TextureRef::Renamed { name, r#as } => {
-                    if let Some(x) = texture_name_match.get(name).copied() {
-                        acc.push((x, r#as.clone()));
-                    } else {
-                        let mut expects = String::new();
-                        write!(expects, "Expected one of ").unwrap();
-                        for (idx, k) in texture_name_match.keys().enumerate() {
-                            if idx != 0 {
-                                write!(expects, ",").unwrap();
-                            }
-                            write!(expects, "'{}'", k).unwrap();
-                        }
-                        write!(expects, ".").unwrap();
-
-                        bail!(
-                            "Could not find texture '{}' for pass {}. {}",
-                            name,
-                            pass_num,
-                            expects
-                        )
-                    }
-                }
-                ser::TextureRef::Name(name) => {
-                    if let Some(x) = texture_name_match.get(name).copied() {
-                        acc.push((x, name.clone()));
-                    } else {
-                        let mut expects = String::new();
-                        write!(expects, "Expected one of ").unwrap();
-                        for (idx, k) in texture_name_match.keys().enumerate() {
-                            if idx != 0 {
-                                write!(expects, ",").unwrap();
-                            }
-                            write!(expects, "'{}'", k).unwrap();
-                        }
-                        write!(expects, ".").unwrap();
-
-                        bail!(
-                            "Could not find texture '{}' for pass {}. {}",
-                            name,
-                            pass_num,
-                            expects
-                        )
-                    }
-                }
-            };
-            Ok(acc)
-        })?;
+        let textures =
+            pass.textures
+                .iter()
+                .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, x| {
+                    acc.push(Self::link_texture(x, texture_name_match, pass_num)?);
+                    Result::Ok(acc)
+                })?;
 
         let vertex = AssetRef::build(Shader::load, &pass.vertex_shader, ())
             .with_context(|| format!("Failed to load vertex shader for pass: {}", pass_num))?;
@@ -250,6 +286,17 @@ impl Config {
             None,
         )
         .with_context(|| format!("Failed to compile program for pass: {}", pass_num))?;
+
+        for (name, _) in program.attributes() {
+            match name.as_str() {
+                "position" | "normal" | "tex_coord" => {}
+                x => bail!(
+                    "Invalid attribute `{}` used in shader for pass {}",
+                    x,
+                    pass_num
+                ),
+            }
+        }
 
         let draw_parameters = pass.settings.to_params();
 
@@ -323,6 +370,12 @@ impl Config {
                     _ => {}
                 }
             }
+            WindowEvent::Resized(size) => {
+                let dimensions = (size.width, size.height);
+                for t in self.textures.iter_mut() {
+                    t.resize(dimensions, &self.display).unwrap()
+                }
+            }
             _ => {}
         }
     }
@@ -356,15 +409,15 @@ impl Asset for Config {
 
     fn reload_dependency(&mut self, asset: &crate::asset::DynAssetRef) -> Result<bool> {
         for (idx, p) in self.passes.iter_mut().enumerate() {
-            if asset.same(&p.vertex) || asset.same(&p.fragment) {
-                p.reload(&self.display)
-                    .with_context(|| format!("failed to reload pass {}", idx))?;
+            if p.try_reload_dependency(asset, &self.display)
+                .with_context(|| format!("failed to reload pass {}", idx))?
+            {
                 return Ok(true);
             }
         }
 
         for p in self.textures.iter_mut() {
-            if p.try_reload(asset, &self.display)? {
+            if p.try_reload_dependecy(asset, &self.display)? {
                 return Ok(true);
             }
         }

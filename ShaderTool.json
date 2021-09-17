@@ -16,6 +16,10 @@
             "name": "cat",
             "kind": {"File": "cat.jpg"},
             "wrap": "mirror"
+        },
+        {
+            "name": "col_target",
+            "kind": {"Empty": { "size": "view_port"}}
         }
     ],
     "camera":{
@@ -30,6 +34,9 @@
         "fragment_shader": "fs.glsl",
         "textures": ["cat"],
         "objects": ["foo","bar"],
+        "target":{
+            "color":["col_target"]
+        },
         "settings": {
             "cull": "counter_clockwise"
         }

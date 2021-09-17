@@ -56,13 +56,20 @@ pub struct LoadedObject {
 }
 
 #[derive(Debug)]
+pub struct LoadedTarget {
+    color: Vec<(usize, String)>,
+    depth: Option<usize>,
+}
+
+#[derive(Debug)]
 pub struct LoadedPasses {
     vertex: AssetRef<Shader>,
     fragment: AssetRef<Shader>,
     program: Program,
     draw_parameters: DrawParameters<'static>,
     objects: Vec<usize>,
-    textures: Vec<(TextureLink, String)>,
+    textures: Vec<(usize, String)>,
+    target: Option<LoadedTarget>,
 }
 
 impl LoadedPasses {
@@ -94,12 +101,6 @@ impl LoadedPasses {
         }
         Ok(false)
     }
-}
-
-#[derive(Debug)]
-enum TextureLink {
-    Target(usize),
-    Texture(usize),
 }
 
 #[derive(Debug)]
@@ -186,11 +187,11 @@ impl Config {
         texture: &ser::TextureRef,
         texture_name_match: &HashMap<String, usize>,
         pass_num: usize,
-    ) -> Result<(TextureLink, String)> {
+    ) -> Result<(usize, String)> {
         match texture {
             ser::TextureRef::Renamed { name, r#as } => {
                 if let Some(x) = texture_name_match.get(name).copied() {
-                    return Ok((TextureLink::Texture(x), r#as.clone()));
+                    return Ok((x, r#as.clone()));
                 } else {
                     let mut expects = String::new();
                     write!(expects, "Expected one of ").unwrap();
@@ -212,7 +213,7 @@ impl Config {
             }
             ser::TextureRef::Name(name) => {
                 if let Some(x) = texture_name_match.get(name).copied() {
-                    return Ok((TextureLink::Target(x), name.clone()));
+                    return Ok((x, name.clone()));
                 } else {
                     let mut expects = String::new();
                     write!(expects, "Expected one of ").unwrap();
@@ -270,7 +271,10 @@ impl Config {
             pass.textures
                 .iter()
                 .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, x| {
-                    acc.push(Self::link_texture(x, texture_name_match, pass_num)?);
+                    acc.push(
+                        Self::link_texture(x, texture_name_match, pass_num)
+                            .context("failed to link pass texture")?,
+                    );
                     Result::Ok(acc)
                 })?;
 
@@ -298,6 +302,35 @@ impl Config {
             }
         }
 
+        let target = match pass.target {
+            ser::PassTarget::Frame => None,
+            ser::PassTarget::Buffer(ref x) => {
+                let color = x
+                    .color
+                    .iter()
+                    .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, x| {
+                        acc.push(Self::link_texture(&x, texture_name_match, pass_num)?);
+                        Ok(acc)
+                    })
+                    .context("Failed to link pass target color attachment")?;
+                let depth = x
+                    .depth
+                    .as_ref()
+                    .map(|x| {
+                        Self::link_texture(
+                            &ser::TextureRef::Name(x.clone()),
+                            texture_name_match,
+                            pass_num,
+                        )
+                    })
+                    .transpose()
+                    .context("Failed to link pass target depth attachment")?
+                    .map(|x| x.0);
+
+                Some(LoadedTarget { color, depth })
+            }
+        };
+
         let draw_parameters = pass.settings.to_params();
 
         Ok(LoadedPasses {
@@ -307,6 +340,7 @@ impl Config {
             draw_parameters,
             textures,
             program,
+            target,
         })
     }
 

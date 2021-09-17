@@ -5,6 +5,7 @@ use glium::{
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
 pub enum TextureSize {
     ViewPort,
     Size { width: u32, height: u32 },

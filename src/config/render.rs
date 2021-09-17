@@ -1,9 +1,10 @@
-use super::{Config, LoadedCamera, TextureLink};
-use anyhow::Result;
+use super::{Config, LoadedCamera};
+use anyhow::{Context, Result};
 use glam::f32::{Mat4, Quat, Vec3};
 use std::collections::HashMap;
 
 use glium::{
+    framebuffer::MultiOutputFrameBuffer,
     uniforms::{AsUniformValue, Sampler, UniformValue, Uniforms},
     Frame, Surface,
 };
@@ -64,10 +65,7 @@ impl Config {
                 .textures
                 .iter()
                 .map(|(text_id, name)| {
-                    let texture = match text_id {
-                        TextureLink::Target(text_id) => &self.textures[*text_id],
-                        _ => todo!(),
-                    };
+                    let texture = &self.textures[*text_id];
                     let sampler = Sampler::new(&texture.texture);
                     let sampler = texture.config.apply_to_sampler(sampler);
                     (name, sampler)
@@ -87,13 +85,38 @@ impl Config {
                 let mut uniforms = uniforms.clone();
                 uniforms.add("model".to_string(), &model);
 
-                frame.draw(
-                    &object.vertex,
-                    &object.index,
-                    &pass.program,
-                    &uniforms,
-                    &pass.draw_parameters,
-                )?;
+                match pass.target {
+                    None => {
+                        frame.draw(
+                            &object.vertex,
+                            &object.index,
+                            &pass.program,
+                            &uniforms,
+                            &pass.draw_parameters,
+                        )?;
+                    }
+                    Some(ref target) => match target.depth {
+                        Some(_depth) => {
+                            todo!();
+                        }
+                        None => {
+                            let mut target = MultiOutputFrameBuffer::new(
+                                &self.display,
+                                target.color.iter().map(|(which, name)| {
+                                    (name.as_str(), &self.textures[*which].texture)
+                                }),
+                            )
+                            .context("could not create frame buffer")?;
+                            target.draw(
+                                &object.vertex,
+                                &object.index,
+                                &pass.program,
+                                &uniforms,
+                                &pass.draw_parameters,
+                            )?
+                        }
+                    },
+                }
             }
         }
         Ok(())

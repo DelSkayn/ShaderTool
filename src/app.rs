@@ -85,7 +85,7 @@ impl App {
             .with_title("Shader tool");
 
         let context_builder = glutin::ContextBuilder::new()
-            .with_depth_buffer(0)
+            .with_depth_buffer(8)
             .with_srgb(true)
             .with_stencil_buffer(0)
             .with_vsync(true);

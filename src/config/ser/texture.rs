@@ -1,5 +1,5 @@
 use glium::{
-    texture::{MipmapsOption, UncompressedFloatFormat},
+    texture::{DepthFormat, MipmapsOption, UncompressedFloatFormat},
     uniforms::{MagnifySamplerFilter, MinifySamplerFilter, Sampler, SamplerWrapFunction},
 };
 use serde::Deserialize;
@@ -29,10 +29,23 @@ pub struct EmptyTexture {
     pub format: UncompressedFloatFormat,
 }
 
+fn depth_format() -> DepthFormat {
+    DepthFormat::F32
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct DepthTexture {
+    pub size: TextureSize,
+    #[serde(with = "DepthFormatDef")]
+    #[serde(default = "depth_format")]
+    pub format: DepthFormat,
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub enum TextureKind {
     File(String),
     Empty(EmptyTexture),
+    Depth(DepthTexture),
 }
 
 fn wrap() -> SamplerWrapFunction {
@@ -269,4 +282,14 @@ pub enum UncompressedFloatFormatDef {
     ///
     /// Guaranteed to be supported for textures.
     F9F9F9,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[serde(remote = "DepthFormat")]
+pub enum DepthFormatDef {
+    I16,
+    I24,
+    I32,
+    F32,
 }

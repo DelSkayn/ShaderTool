@@ -20,6 +20,10 @@
         {
             "name": "col_target",
             "kind": {"Empty": { "size": "view_port"}}
+        },
+        {
+            "name": "col_depth",
+            "kind": {"Depth": { "size": "view_port"}}
         }
     ],
     "camera":{
@@ -31,12 +35,21 @@
     },
     "passes":[{
         "vertex_shader": "vs.glsl",
-        "fragment_shader": "fs.glsl",
+        "fragment_shader": "fsp.glsl",
         "textures": ["cat"],
         "objects": ["foo","bar"],
-        "target":{
-            "color":["col_target"]
+        "target": {
+            "color": ["col_target"],
+            "depth": "col_depth"
         },
+        "settings": {
+            "cull": "counter_clockwise"
+        }
+    },{
+        "vertex_shader": "vs.glsl",
+        "fragment_shader": "fs.glsl",
+        "textures": ["col_target"],
+        "objects": ["foo","bar"],
         "settings": {
             "cull": "counter_clockwise"
         }

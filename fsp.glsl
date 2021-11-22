@@ -1,19 +1,19 @@
 #version 330
 
 in vec3 color;
-out vec3 frag_color;
+out vec3 col_target;
 
 uniform mat4 view;
 
 uniform vec3 light_pos = vec3(3.5, 20.0,0.5);
 
-uniform sampler2D texture_col_target;
+uniform sampler2D texture_cat;
 in vec3 pos;
 in vec3 norm;
 in vec2 text_coord;
 
 void main(){
-    vec3 c = texture(texture_col_target,text_coord).rgb;
+    vec3 c = texture(texture_cat,text_coord).rgb;
     vec3 diffuse_color = c * (norm + 1.0) / 2.0;
     vec3 light_pos = mat3(view) * light_pos;
 
@@ -29,5 +29,5 @@ void main(){
         spec = pow(spec_angle, 32.0);
     }
 
-    frag_color = diffuse_color * 0.1 + diffuse_color *  lamb + diffuse_color * spec;
+    col_target = diffuse_color * 0.1 + diffuse_color *  lamb + diffuse_color * spec;
 }

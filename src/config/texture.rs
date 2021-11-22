@@ -4,17 +4,26 @@ use super::ser::{self, TextureSize};
 use crate::asset::{Asset, AssetRef, DynAssetRef};
 use anyhow::{Context, Result};
 use glium::{
-    texture::{RawImage2d, Texture2d, UncompressedFloatFormat},
+    texture::{DepthFormat, DepthTexture2d, RawImage2d, Texture2d, UncompressedFloatFormat},
     Display,
 };
 use image::RgbaImage;
 
 #[derive(Debug)]
 pub enum LoadedTextureKind {
-    File(AssetRef<FileTexture>),
+    File {
+        asset: AssetRef<FileTexture>,
+        texture: Texture2d,
+    },
     Empty {
         size: TextureSize,
         format: UncompressedFloatFormat,
+        texture: Texture2d,
+    },
+    Depth {
+        size: TextureSize,
+        format: DepthFormat,
+        texture: DepthTexture2d,
     },
 }
 
@@ -45,14 +54,13 @@ impl Asset for FileTexture {
 #[derive(Debug)]
 pub struct LoadedTexture {
     pub kind: LoadedTextureKind,
-    pub texture: Texture2d,
     pub config: ser::Texture,
 }
 
 impl LoadedTexture {
     /// Load a texture from a config.
     pub fn load(config: &ser::Texture, display: &Display) -> Result<Self> {
-        let (kind, texture) = match config.kind {
+        let kind = match config.kind {
             ser::TextureKind::File(ref x) => {
                 let loaded = AssetRef::build(FileTexture::load, x, ()).with_context(|| {
                     format!("failed to load image file for texture at path: {}", x)
@@ -62,7 +70,10 @@ impl LoadedTexture {
                 let raw_image = RawImage2d::from_raw_rgba(image.into_vec(), dimensions);
                 let texture = Texture2d::with_mipmaps(display, raw_image, config.mipmaps.into())
                     .context("failed to load texture")?;
-                (LoadedTextureKind::File(loaded), texture)
+                LoadedTextureKind::File {
+                    asset: loaded,
+                    texture,
+                }
             }
             ser::TextureKind::Empty(ref x) => {
                 let size = match x.size {
@@ -77,18 +88,34 @@ impl LoadedTexture {
                     size.1,
                 )
                 .context("failed to create texture")?;
-                (
-                    LoadedTextureKind::Empty {
-                        size: x.size,
-                        format: x.format,
-                    },
+                LoadedTextureKind::Empty {
+                    size: x.size,
+                    format: x.format,
                     texture,
+                }
+            }
+            ser::TextureKind::Depth(ref x) => {
+                let size = match x.size {
+                    TextureSize::ViewPort => display.get_framebuffer_dimensions(),
+                    TextureSize::Size { width, height } => (width, height),
+                };
+                let texture = DepthTexture2d::empty_with_format(
+                    display,
+                    x.format,
+                    config.mipmaps.into(),
+                    size.0,
+                    size.1,
                 )
+                .context("failed to create texture")?;
+                LoadedTextureKind::Depth {
+                    size: x.size,
+                    format: x.format,
+                    texture,
+                }
             }
         };
         Ok(LoadedTexture {
             kind,
-            texture,
             config: config.clone(),
         })
     }
@@ -98,18 +125,22 @@ impl LoadedTexture {
     /// Returns true if a dependecy was reloaded.
     pub fn try_reload_dependecy(&mut self, asset: &DynAssetRef, display: &Display) -> Result<bool> {
         match self.kind {
-            LoadedTextureKind::File(ref x) => {
+            LoadedTextureKind::File {
+                asset: ref x,
+                ref mut texture,
+            } => {
                 if asset.same(x) {
                     let image = x.borrow_mut().image.clone();
                     let dimensions = image.dimensions();
                     let raw_image = RawImage2d::from_raw_rgba(image.into_vec(), dimensions);
-                    self.texture =
+                    *texture =
                         Texture2d::with_mipmaps(display, raw_image, self.config.mipmaps.into())
                             .context("failed to load texture")?;
                     return Ok(true);
                 }
             }
             LoadedTextureKind::Empty { .. } => {}
+            LoadedTextureKind::Depth { .. } => {}
         }
         Ok(false)
     }
@@ -117,11 +148,32 @@ impl LoadedTexture {
     /// Resizes the texture if the texture size is a factor of the viewport size.
     pub fn resize(&mut self, dimensions: (u32, u32), display: &Display) -> Result<()> {
         match self.kind {
-            LoadedTextureKind::File(_) => {}
-            LoadedTextureKind::Empty { size, format } => match size {
+            LoadedTextureKind::File { .. } => {}
+            LoadedTextureKind::Empty {
+                size,
+                format,
+                ref mut texture,
+            } => match size {
                 TextureSize::Size { .. } => {}
                 TextureSize::ViewPort => {
-                    self.texture = Texture2d::empty_with_format(
+                    *texture = Texture2d::empty_with_format(
+                        display,
+                        format,
+                        self.config.mipmaps.into(),
+                        dimensions.0,
+                        dimensions.1,
+                    )
+                    .context("failed to create texture")?;
+                }
+            },
+            LoadedTextureKind::Depth {
+                size,
+                format,
+                ref mut texture,
+            } => match size {
+                TextureSize::Size { .. } => {}
+                TextureSize::ViewPort => {
+                    *texture = DepthTexture2d::empty_with_format(
                         display,
                         format,
                         self.config.mipmaps.into(),

@@ -16,7 +16,7 @@ use glium::{
 };
 use notify::{
     event::{AccessKind, AccessMode, Event as NotifyEvent},
-    immediate_watcher, EventKind, RecommendedWatcher, Result as NotifyResult, Watcher,
+    EventKind, RecommendedWatcher, Result as NotifyResult, Watcher,
 };
 use std::path::{Path, PathBuf};
 
@@ -27,6 +27,7 @@ pub enum UserEvent {
 
 pub struct App {
     ron: bool,
+    old_config: Option<AssetRef<Config>>,
     config: Option<AssetRef<Config>>,
     display: Display,
     egui: EguiGlium,
@@ -74,6 +75,7 @@ impl App {
             ron: ron_exists,
             display,
             _watcher,
+            old_config: None,
             config,
             model,
         })
@@ -94,7 +96,7 @@ impl App {
     }
 
     fn create_watcher(proxy: EventLoopProxy<UserEvent>) -> Result<RecommendedWatcher> {
-        let mut watcher = immediate_watcher(move |ev: NotifyResult<NotifyEvent>| {
+        let mut watcher = notify::recommended_watcher(move |ev: NotifyResult<NotifyEvent>| {
             if let Ok(x) = ev {
                 if x.kind != EventKind::Access(AccessKind::Close(AccessMode::Write)) {
                     return;
@@ -106,11 +108,11 @@ impl App {
                 }
             }
         })?;
-        watcher.watch("./", notify::RecursiveMode::Recursive)?;
+        watcher.watch(Path::new("./"), notify::RecursiveMode::Recursive)?;
         Ok(watcher)
     }
 
-    fn redraw(&mut self, control_flow: &mut ControlFlow) {
+    fn redraw(&mut self, control_flow: &mut ControlFlow) -> Result<()> {
         self.egui.begin_frame(&self.display);
 
         self.model.draw(self.egui.ctx());
@@ -142,16 +144,19 @@ impl App {
             );
 
             if let Some(x) = self.config.as_ref().map(|x| x.borrow()) {
-                x.render(&mut target).unwrap();
+                match x.render(&mut target) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        target.finish().ok();
+                        return Err(e);
+                    }
+                }
             }
-
-            // draw things behind egui here
 
             self.egui.paint(&self.display, &mut target, shapes);
 
-            // draw things on top of egui here
-
-            target.finish().unwrap();
+            target.finish()?;
+            Ok(())
         }
     }
 
@@ -160,8 +165,29 @@ impl App {
             // Platform-dependent event handlers to workaround a winit bug
             // See: https://github.com/rust-windowing/winit/issues/987
             // See: https://github.com/rust-windowing/winit/issues/1619
-            Event::RedrawEventsCleared if cfg!(windows) => self.redraw(control_flow),
-            Event::RedrawRequested(_) if !cfg!(windows) => self.redraw(control_flow),
+            Event::RedrawEventsCleared if cfg!(windows) => match self.redraw(control_flow) {
+                Ok(_) => {
+                    self.old_config.take();
+                }
+                Err(e) => {
+                    error!("{:?}", e);
+                    self.config = self.old_config.take();
+                    self.model.set_error(Some(format!("{:?}", e)));
+                    *control_flow = ControlFlow::Poll;
+                }
+            },
+            Event::RedrawRequested(_) if !cfg!(windows) => match self.redraw(control_flow) {
+                Ok(_) => {
+                    self.old_config.take();
+                }
+                Err(e) => {
+                    error!("{:?}", e);
+                    self.config = self.old_config.take();
+                    self.model.set_error(Some(format!("{:?}", e)));
+                    *control_flow = ControlFlow::Poll;
+                }
+            },
+
             Event::WindowEvent { event, .. } => {
                 if let Some(mut x) = self.config.as_ref().map(|x| x.borrow_mut()) {
                     x.handle_window_event(&event)

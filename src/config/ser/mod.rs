@@ -39,7 +39,6 @@ pub enum TextureRef {
 
 #[derive(Debug, Deserialize)]
 pub struct PassTargetBuffer {
-    #[serde(default)]
     pub color: Vec<TextureRef>,
     #[serde(default)]
     pub depth: Option<String>,

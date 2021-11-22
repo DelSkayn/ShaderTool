@@ -37,7 +37,7 @@ pub enum DepthTestDef {
 }
 
 fn t() -> bool {
-    true
+    false
 }
 
 fn clamp() -> DepthClamp {
@@ -45,7 +45,7 @@ fn clamp() -> DepthClamp {
 }
 
 fn test() -> DepthTest {
-    DepthTest::IfLess
+    DepthTest::Ignore
 }
 
 #[derive(Deserialize, Serialize, Debug)]

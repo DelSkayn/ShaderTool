@@ -1,0 +1,14 @@
+{
+    "objects": [
+        {
+            "//": "A screen quad is a plane which can be used for post processing effects",
+            "name": "screen_quad",
+            "kind": {"geometry": "screen_quad"}
+        }
+    ],
+    "passes":[{
+        "vertex_shader": "vs.glsl",
+        "fragment_shader": "fs.glsl",
+        "objects":["screen_quad"]
+    }]
+}

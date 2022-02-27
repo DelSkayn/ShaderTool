@@ -1,4 +1,3 @@
-use crate::asset::{Asset, AssetRef, DynAssetRef};
 use crate::render::Vertex;
 use anyhow::{Context, Result};
 use glam::f32::{Mat4, Quat, Vec2, Vec3};
@@ -23,22 +22,12 @@ pub struct Shader {
 }
 
 impl Shader {
-    fn load(path: &Path, _: ()) -> Result<Self> {
+    fn load(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
         let mut source = String::new();
         let mut file = File::open(path)?;
         file.read_to_string(&mut source)?;
         Ok(Shader { source })
-    }
-}
-
-impl Asset for Shader {
-    fn reload(&mut self, path: &Path) -> Result<()> {
-        *self = Shader::load(path, ())?;
-        Ok(())
-    }
-
-    fn reload_dependency(&mut self, _: &crate::asset::DynAssetRef) -> Result<bool> {
-        Ok(false)
     }
 }
 
@@ -63,44 +52,13 @@ pub struct LoadedTarget {
 
 #[derive(Debug)]
 pub struct LoadedPasses {
-    vertex: AssetRef<Shader>,
-    fragment: AssetRef<Shader>,
+    vertex: Shader,
+    fragment: Shader,
     program: Program,
     draw_parameters: DrawParameters<'static>,
     objects: Vec<usize>,
     textures: Vec<(usize, String)>,
     target: Option<LoadedTarget>,
-}
-
-impl LoadedPasses {
-    /// Reload a pass, if any of its dependecies reloaded.
-    ///
-    /// Returns true if the pass reloaded.
-    pub fn try_reload_dependency(
-        &mut self,
-        asset: &DynAssetRef,
-        display: &Display,
-    ) -> Result<bool> {
-        if asset.same(&self.vertex) || asset.same(&self.fragment) {
-            let program = Program::from_source(
-                display,
-                &self.vertex.borrow().source,
-                &self.fragment.borrow().source,
-                None,
-            )?;
-
-            for (name, _) in program.attributes() {
-                match name.as_str() {
-                    "position" | "normal" | "tex_coord" => {}
-                    x => bail!("Invalid attribute `{}` used in shader", x),
-                }
-            }
-
-            self.program = program;
-            return Ok(true);
-        }
-        Ok(false)
-    }
 }
 
 #[derive(Debug)]
@@ -115,7 +73,8 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load(path: &Path, display: &Display) -> Result<Self> {
+    pub fn load(path: impl AsRef<Path>, display: &Display) -> Result<Self> {
+        let path = path.as_ref();
         let file = File::open(path).context("could not find config file")?;
         let config: ser::Config = match path.extension().and_then(OsStr::to_str) {
             Some("ron") => ron::de::from_reader(file).context("Failed to parse config file")?,
@@ -278,18 +237,13 @@ impl Config {
                     Result::Ok(acc)
                 })?;
 
-        let vertex = AssetRef::build(Shader::load, &pass.vertex_shader, ())
+        let vertex = Shader::load(&pass.vertex_shader)
             .with_context(|| format!("Failed to load vertex shader for pass: {}", pass_num))?;
-        let fragment = AssetRef::build(Shader::load, &pass.fragment_shader, ())
+        let fragment = Shader::load(&pass.fragment_shader)
             .with_context(|| format!("Failed to load fragment shader for pass: {}", pass_num))?;
 
-        let program = Program::from_source(
-            display,
-            &vertex.borrow().source,
-            &fragment.borrow().source,
-            None,
-        )
-        .with_context(|| format!("Failed to compile program for pass: {}", pass_num))?;
+        let program = Program::from_source(display, &vertex.source, &fragment.source, None)
+            .with_context(|| format!("Failed to compile program for pass: {}", pass_num))?;
 
         for (name, _) in program.attributes() {
             match name.as_str() {
@@ -427,35 +381,5 @@ impl Config {
             },
             _ => {}
         }
-    }
-}
-
-impl Asset for Config {
-    fn reload(&mut self, path: &Path) -> Result<()> {
-        let mut new = Config::load(path, &self.display)?;
-        if new.config.camera.kind == self.config.camera.kind {
-            new.camera = self.camera;
-        }
-
-        *self = new;
-        Ok(())
-    }
-
-    fn reload_dependency(&mut self, asset: &crate::asset::DynAssetRef) -> Result<bool> {
-        for (idx, p) in self.passes.iter_mut().enumerate() {
-            if p.try_reload_dependency(asset, &self.display)
-                .with_context(|| format!("failed to reload pass {}", idx))?
-            {
-                return Ok(true);
-            }
-        }
-
-        for p in self.textures.iter_mut() {
-            if p.try_reload_dependecy(asset, &self.display)? {
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
     }
 }

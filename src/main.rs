@@ -8,10 +8,9 @@ use anyhow::Result;
 use glium::glutin::event_loop::EventLoop;
 
 mod app;
-mod asset;
+//mod asset;
 mod config;
 mod geom;
-mod gui;
 mod render;
 mod util;
 

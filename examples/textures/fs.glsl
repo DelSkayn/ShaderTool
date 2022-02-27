@@ -1,7 +1,7 @@
 #version 330
 
 in vec3 color;
-out vec3 frag_color;
+out vec4 frag_color;
 
 uniform mat4 view;
 
@@ -29,5 +29,5 @@ void main(){
         spec = pow(spec_angle, 32.0);
     }
 
-    frag_color = diffuse_color * 0.1 + diffuse_color *  lamb + diffuse_color * spec;
+    frag_color = vec4(diffuse_color * 0.1 + diffuse_color *  lamb + diffuse_color * spec,1.0);
 }

@@ -1,4 +1,7 @@
-use super::{texture::LoadedTextureKind, Config, LoadedCamera, LoadedPass, LoadedTarget};
+use super::{
+    texture::LoadedTextureKind, BuiltinUniform, Config, LoadedCamera, LoadedPass, LoadedTarget,
+    UniformBinding,
+};
 use anyhow::{Context, Result};
 use glam::f32::{Mat4, Quat, Vec3};
 use std::collections::HashMap;
@@ -30,6 +33,19 @@ impl<'b> Uniforms for DynUniformStorage<'b> {
     }
 }
 
+pub struct BuiltinUniforms {
+    time: f32,
+    model: [[f32; 4]; 4],
+    view: [[f32; 4]; 4],
+    perspective: [[f32; 4]; 4],
+    mouse_x: f32,
+    mouse_y: f32,
+    mouse_pos: [f32; 2],
+    window_width: f32,
+    window_height: f32,
+    window_size: [f32; 2],
+}
+
 impl Config {
     pub fn get_camera_matrix(&self) -> Mat4 {
         match self.camera {
@@ -42,6 +58,28 @@ impl Config {
 
                 Mat4::from_quat(rotation.conjugate()) * Mat4::from_translation(-position)
             }
+        }
+    }
+
+    pub fn get_builtin_uniforms(&self) -> BuiltinUniforms {
+        let perspective = Mat4::perspective_lh(
+            self.config.camera.fov.to_radians(),
+            self.window_size.x / self.window_size.y,
+            0.01,
+            100.0,
+        )
+        .to_cols_array_2d();
+        BuiltinUniforms {
+            time: self.start_time.elapsed().as_secs_f32(),
+            model: Mat4::IDENTITY.to_cols_array_2d(),
+            view: self.get_camera_matrix().to_cols_array_2d(),
+            perspective,
+            mouse_x: self.mouse_pos.x,
+            mouse_y: self.mouse_pos.y,
+            mouse_pos: self.mouse_pos.into(),
+            window_width: self.window_size.x,
+            window_height: self.window_size.y,
+            window_size: self.window_size.into(),
         }
     }
 
@@ -105,16 +143,10 @@ impl Config {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame) -> Result<()> {
-        let camera_mat = self.get_camera_matrix();
-        let dimensions = frame.get_dimensions();
-        let aspect_ratio = dimensions.0 as f32 / dimensions.1 as f32;
-        let perspective_mat = Mat4::perspective_lh(
-            self.config.camera.fov.to_radians(),
-            aspect_ratio,
-            0.01,
-            100.0,
-        );
+    pub fn render(&self, frame: &mut Frame) -> Result<bool> {
+        let mut builtin_uniforms = self.get_builtin_uniforms();
+
+        let mut should_poll = false;
 
         for (pass_id, pass) in self.passes.iter().enumerate() {
             if let Some(x) = &pass.target {
@@ -133,11 +165,6 @@ impl Config {
                         1.0,
                     );
             }
-
-            let mut uniforms = DynUniformStorage::new();
-            let camera_mat = camera_mat.to_cols_array_2d();
-            let perspective_mat = perspective_mat.to_cols_array_2d();
-
             let mut texture_samplers = Vec::new();
             let mut depth_texture_samplers = Vec::new();
 
@@ -157,22 +184,60 @@ impl Config {
                 };
             }
 
-            uniforms.add("view".to_string(), &camera_mat);
-            uniforms.add("projection".to_string(), &perspective_mat);
-
-            for (name, s) in texture_samplers.iter() {
-                uniforms.add(format!("texture_{}", name), s)
-            }
-
-            for (name, s) in depth_texture_samplers.iter() {
-                uniforms.add(format!("texture_{}", name), s)
-            }
-
             for object in pass.objects.iter().copied() {
                 let object = &self.objects[object];
-                let model = object.matrix.to_cols_array_2d();
-                let mut uniforms = uniforms.clone();
-                uniforms.add("model".to_string(), &model);
+                builtin_uniforms.model = object.matrix.to_cols_array_2d();
+
+                let mut uniforms = DynUniformStorage::new();
+
+                for (name, value) in pass.uniforms.iter() {
+                    match value.binding {
+                        UniformBinding::Unbound => {}
+                        UniformBinding::Custom(ref x) => {
+                            uniforms.add(name.clone(), x);
+                        }
+                        UniformBinding::Builtin(builtin) => match builtin {
+                            BuiltinUniform::View => {
+                                uniforms.add(name.clone(), &builtin_uniforms.view)
+                            }
+                            BuiltinUniform::Model => {
+                                uniforms.add(name.clone(), &builtin_uniforms.model)
+                            }
+                            BuiltinUniform::Perspective => {
+                                uniforms.add(name.clone(), &builtin_uniforms.perspective)
+                            }
+                            BuiltinUniform::Time => {
+                                should_poll = true;
+                                uniforms.add(name.clone(), &builtin_uniforms.time)
+                            }
+                            BuiltinUniform::MouseX => {
+                                uniforms.add(name.clone(), &builtin_uniforms.mouse_x)
+                            }
+                            BuiltinUniform::MouseY => {
+                                uniforms.add(name.clone(), &builtin_uniforms.mouse_y)
+                            }
+                            BuiltinUniform::MousePos => {
+                                uniforms.add(name.clone(), &builtin_uniforms.mouse_pos)
+                            }
+                            BuiltinUniform::WindowWidth => {
+                                uniforms.add(name.clone(), &builtin_uniforms.window_width)
+                            }
+                            BuiltinUniform::WindowHeight => {
+                                uniforms.add(name.clone(), &builtin_uniforms.window_height)
+                            }
+                            BuiltinUniform::WindowSize => {
+                                uniforms.add(name.clone(), &builtin_uniforms.window_size)
+                            }
+                        },
+                    }
+                }
+                for (name, s) in texture_samplers.iter() {
+                    uniforms.add(format!("texture_{}", name), s)
+                }
+
+                for (name, s) in depth_texture_samplers.iter() {
+                    uniforms.add(format!("texture_{}", name), s)
+                }
 
                 match pass.target {
                     None => {
@@ -204,6 +269,6 @@ impl Config {
                 }
             }
         }
-        Ok(())
+        Ok(should_poll)
     }
 }

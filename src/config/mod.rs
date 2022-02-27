@@ -6,6 +6,7 @@ use glium::{
     glutin::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     Display, IndexBuffer, VertexBuffer,
 };
+use std::time::Instant;
 use std::{collections::HashMap, ffi::OsStr, fmt::Write, fs::File, io::Read, path::Path};
 
 use self::ser::CameraKind;
@@ -14,7 +15,7 @@ mod ser;
 mod texture;
 use texture::LoadedTexture;
 mod pass;
-pub use pass::{BuiltInUniform, CustomUniform, LoadedPass, UniformBinding, UniformData};
+pub use pass::{BuiltinUniform, CustomUniform, LoadedPass, UniformBinding, UniformData};
 mod render;
 
 #[derive(Debug)]
@@ -59,6 +60,9 @@ pub struct Config {
     pub objects: Vec<LoadedObject>,
     pub textures: Vec<LoadedTexture>,
     pub passes: Vec<LoadedPass>,
+    start_time: Instant,
+    mouse_pos: Vec2,
+    window_size: Vec2,
     display: Display,
 }
 
@@ -118,14 +122,19 @@ impl Config {
 
         debug!("reloaded config: {:#?}", &config);
 
+        let (window_width, window_height) = display.get_framebuffer_dimensions();
+
         Ok(Config {
             mouse_pressed: false,
             config,
             objects,
             textures,
             passes,
-            display: display.clone(),
+            start_time: Instant::now(),
             camera,
+            display: display.clone(),
+            mouse_pos: Vec2::ZERO,
+            window_size: Vec2::new(window_width as f32, window_height as f32),
         })
     }
 
@@ -170,117 +179,6 @@ impl Config {
             }
         };
     }
-
-    /*
-    pub fn load_pass(
-        pass: &ser::Pass,
-        object_name_match: &HashMap<String, usize>,
-        texture_name_match: &HashMap<String, usize>,
-        display: &Display,
-        pass_num: usize,
-    ) -> Result<LoadedPass> {
-        let objects = pass.objects.iter().try_fold(Vec::new(), |mut acc, x| {
-            if let Some(x) = object_name_match.get(x).copied() {
-                acc.push(x);
-            } else {
-                let mut expects = String::new();
-                write!(expects, "Expected one of ").unwrap();
-                for (idx, k) in object_name_match.keys().enumerate() {
-                    if idx != 0 {
-                        write!(expects, ",").unwrap();
-                    }
-                    write!(expects, "`{}`", k).unwrap();
-                }
-                write!(expects, ".").unwrap();
-
-                bail!(
-                    "Could not find object `{}` for pass {}. {}",
-                    x,
-                    pass_num,
-                    expects
-                )
-            }
-            Ok(acc)
-        })?;
-
-        let textures =
-            pass.textures
-                .iter()
-                .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, x| {
-                    acc.push(
-                        Self::link_texture(x, texture_name_match, pass_num)
-                            .context("failed to link pass texture")?,
-                    );
-                    Result::Ok(acc)
-                })?;
-
-        let vertex = Shader::load(&pass.vertex_shader)
-            .with_context(|| format!("Failed to load vertex shader for pass: {}", pass_num))?;
-        let fragment = Shader::load(&pass.fragment_shader)
-            .with_context(|| format!("Failed to load fragment shader for pass: {}", pass_num))?;
-
-        let program = Program::from_source(display, &vertex.source, &fragment.source, None)
-            .with_context(|| format!("Failed to compile program for pass: {}", pass_num))?;
-
-        for (name, _) in program.attributes() {
-            match name.as_str() {
-                "position" | "normal" | "tex_coord" => {}
-                x => bail!(
-                    "Invalid attribute `{}` used in shader for pass {}",
-                    x,
-                    pass_num
-                ),
-            }
-        }
-
-        let uniforms = program
-            .uniforms()
-            .map(|(a, b)| (a.clone(), b.clone()))
-            .collect();
-
-        let target = match pass.target {
-            ser::PassTarget::Frame => None,
-            ser::PassTarget::Buffer(ref x) => {
-                let color = x
-                    .color
-                    .iter()
-                    .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, x| {
-                        acc.push(Self::link_texture(&x, texture_name_match, pass_num)?);
-                        Ok(acc)
-                    })
-                    .context("Failed to link pass target color attachment")?;
-                let depth = x
-                    .depth
-                    .as_ref()
-                    .map(|x| {
-                        Self::link_texture(
-                            &ser::TextureRef::Name(x.clone()),
-                            texture_name_match,
-                            pass_num,
-                        )
-                    })
-                    .transpose()
-                    .context("Failed to link pass target depth attachment")?
-                    .map(|x| x.0);
-
-                Some(LoadedTarget { color, depth })
-            }
-        };
-
-        let draw_parameters = pass.settings.to_params();
-
-        Ok(LoadedPass {
-            vertex,
-            fragment,
-            objects,
-            draw_parameters,
-            textures,
-            program,
-            target,
-            uniforms,
-        })
-    }
-    */
 
     pub fn load_object(object: &ser::Object, display: &Display) -> Result<LoadedObject> {
         let rot = Quat::from_rotation_ypr(
@@ -342,11 +240,15 @@ impl Config {
                     _ => {}
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.mouse_pos = Vec2::new(position.x as f32, position.y as f32);
+            }
             WindowEvent::Resized(size) => {
                 let dimensions = (size.width, size.height);
                 for t in self.textures.iter_mut() {
                     t.resize(dimensions, &self.display).unwrap()
                 }
+                self.window_size = Vec2::new(size.width as f32, size.height as f32);
             }
             _ => {}
         }

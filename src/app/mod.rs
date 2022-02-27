@@ -180,16 +180,7 @@ impl App {
     }
 
     fn redraw(&mut self, control_flow: &mut ControlFlow) {
-        let needs_repaint = self.draw_gui();
-
-        *control_flow = if !self.should_run {
-            glutin::event_loop::ControlFlow::Exit
-        } else if needs_repaint {
-            self.display.gl_window().window().request_redraw();
-            glutin::event_loop::ControlFlow::Poll
-        } else {
-            glutin::event_loop::ControlFlow::Wait
-        };
+        let mut needs_repaint = self.draw_gui();
 
         {
             use glium::Surface as _;
@@ -210,7 +201,7 @@ impl App {
                 State::Loaded { ref config, .. } | State::ReloadError { ref config, .. } => {
                     // Unwrap because at this point we verified that the current config should run
                     // without problem.
-                    config.render(&mut target).unwrap();
+                    needs_repaint |= config.render(&mut target).unwrap();
                     self.egui.paint(&self.display, &mut target);
                     target.finish().unwrap()
                 }
@@ -224,12 +215,15 @@ impl App {
                         kind,
                     } = self.state.take()
                     {
-                        match config.render(&mut target).and_then(|_| {
+                        match config.render(&mut target).and_then(|x| {
                             self.egui.paint(&self.display, &mut target);
                             target.finish()?;
-                            Ok(())
+                            Ok(x)
                         }) {
-                            Ok(_) => self.state = State::Loaded { config, kind },
+                            Ok(should_poll) => {
+                                self.state = State::Loaded { config, kind };
+                                needs_repaint |= should_poll;
+                            }
                             Err(e) => {
                                 *control_flow = glutin::event_loop::ControlFlow::Poll;
                                 if let Some(config) = old_config {
@@ -256,6 +250,15 @@ impl App {
                 }
             }
         }
+
+        *control_flow = if !self.should_run {
+            glutin::event_loop::ControlFlow::Exit
+        } else if needs_repaint {
+            self.display.gl_window().window().request_redraw();
+            glutin::event_loop::ControlFlow::Poll
+        } else {
+            glutin::event_loop::ControlFlow::Wait
+        };
     }
 
     pub fn handle_event(&mut self, event: Event<UserEvent>, control_flow: &mut ControlFlow) {

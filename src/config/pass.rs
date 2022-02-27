@@ -3,16 +3,20 @@ use std::{collections::HashMap, fmt::Write};
 use anyhow::{Context, Result};
 use egui::Vec2;
 use glam::{Mat4, Vec3, Vec4};
-use glium::{program::Uniform, uniforms::UniformType, Display, DrawParameters, Program};
+use glium::{
+    program::Uniform,
+    uniforms::{AsUniformValue, UniformType},
+    Display, DrawParameters, Program,
+};
 use serde::Deserialize;
 
 use super::{ser, Config, LoadedTarget, Shader};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub enum BuiltInUniform {
+pub enum BuiltinUniform {
     Model,
     View,
-    Projection,
+    Perspective,
     Time,
     MouseX,
     MouseY,
@@ -22,36 +26,36 @@ pub enum BuiltInUniform {
     WindowSize,
 }
 
-impl BuiltInUniform {
+impl BuiltinUniform {
     pub fn label(&self) -> &'static str {
         match *self {
-            BuiltInUniform::Model => "Model",
-            BuiltInUniform::View => "View",
-            BuiltInUniform::Projection => "Projection",
-            BuiltInUniform::Time => "Time",
-            BuiltInUniform::MouseX => "Mouse X",
-            BuiltInUniform::MouseY => "Mouse Y",
-            BuiltInUniform::MousePos => "Mouse Position",
-            BuiltInUniform::WindowWidth => "Window Width",
-            BuiltInUniform::WindowHeight => "Window Height",
-            BuiltInUniform::WindowSize => "Window Size",
+            BuiltinUniform::Model => "Model",
+            BuiltinUniform::View => "View",
+            BuiltinUniform::Perspective => "Perspective",
+            BuiltinUniform::Time => "Time",
+            BuiltinUniform::MouseX => "Mouse X",
+            BuiltinUniform::MouseY => "Mouse Y",
+            BuiltinUniform::MousePos => "Mouse Position",
+            BuiltinUniform::WindowWidth => "Window Width",
+            BuiltinUniform::WindowHeight => "Window Height",
+            BuiltinUniform::WindowSize => "Window Size",
         }
     }
 
-    pub fn valid_for_uniform_type(ty: UniformType) -> &'static [BuiltInUniform] {
+    pub fn valid_for_uniform_type(ty: UniformType) -> &'static [BuiltinUniform] {
         match ty {
             UniformType::Float => &[
-                BuiltInUniform::Time,
-                BuiltInUniform::MouseX,
-                BuiltInUniform::MouseY,
-                BuiltInUniform::WindowWidth,
-                BuiltInUniform::WindowHeight,
+                BuiltinUniform::Time,
+                BuiltinUniform::MouseX,
+                BuiltinUniform::MouseY,
+                BuiltinUniform::WindowWidth,
+                BuiltinUniform::WindowHeight,
             ],
-            UniformType::FloatVec2 => &[BuiltInUniform::MousePos, BuiltInUniform::WindowSize],
+            UniformType::FloatVec2 => &[BuiltinUniform::MousePos, BuiltinUniform::WindowSize],
             UniformType::FloatMat4 => &[
-                BuiltInUniform::Model,
-                BuiltInUniform::View,
-                BuiltInUniform::Projection,
+                BuiltinUniform::Model,
+                BuiltinUniform::View,
+                BuiltinUniform::Perspective,
             ],
             _ => &[],
         }
@@ -66,6 +70,20 @@ pub enum CustomUniform {
     Vec3(Vec3),
     Vec2(Vec2),
     Float(f32),
+}
+
+impl AsUniformValue for CustomUniform {
+    fn as_uniform_value(&self) -> glium::uniforms::UniformValue<'_> {
+        use glium::uniforms::UniformValue;
+
+        match *self {
+            CustomUniform::Mat4(x) => UniformValue::Mat4(x.to_cols_array_2d()),
+            CustomUniform::Vec4(x) => UniformValue::Vec4(x.into()),
+            CustomUniform::Vec3(x) => UniformValue::Vec3(x.into()),
+            CustomUniform::Vec2(x) => UniformValue::Vec2(x.into()),
+            CustomUniform::Float(x) => UniformValue::Float(x),
+        }
+    }
 }
 
 impl CustomUniform {
@@ -129,7 +147,7 @@ impl CustomUniform {
 
 #[derive(Debug, Clone, Copy)]
 pub enum UniformBinding {
-    BuiltIn(BuiltInUniform),
+    Builtin(BuiltinUniform),
     Custom(CustomUniform),
     Unbound,
 }
@@ -143,25 +161,25 @@ pub struct UniformData {
 impl UniformData {
     pub fn from_name_uniform(name: &str, kind: &Uniform) -> Self {
         let binding = match (name, kind.ty) {
-            ("view", UniformType::FloatMat4) => UniformBinding::BuiltIn(BuiltInUniform::View),
+            ("view", UniformType::FloatMat4) => UniformBinding::Builtin(BuiltinUniform::View),
             ("projection", UniformType::FloatMat4) => {
-                UniformBinding::BuiltIn(BuiltInUniform::Projection)
+                UniformBinding::Builtin(BuiltinUniform::Perspective)
             }
-            ("model", UniformType::FloatMat4) => UniformBinding::BuiltIn(BuiltInUniform::Model),
-            ("time", UniformType::Float) => UniformBinding::BuiltIn(BuiltInUniform::Time),
-            ("mouse_x", UniformType::Float) => UniformBinding::BuiltIn(BuiltInUniform::MouseX),
-            ("mouse_y", UniformType::Float) => UniformBinding::BuiltIn(BuiltInUniform::MouseY),
+            ("model", UniformType::FloatMat4) => UniformBinding::Builtin(BuiltinUniform::Model),
+            ("time", UniformType::Float) => UniformBinding::Builtin(BuiltinUniform::Time),
+            ("mouse_x", UniformType::Float) => UniformBinding::Builtin(BuiltinUniform::MouseX),
+            ("mouse_y", UniformType::Float) => UniformBinding::Builtin(BuiltinUniform::MouseY),
             ("window_width", UniformType::Float) => {
-                UniformBinding::BuiltIn(BuiltInUniform::WindowWidth)
+                UniformBinding::Builtin(BuiltinUniform::WindowWidth)
             }
             ("window_height", UniformType::Float) => {
-                UniformBinding::BuiltIn(BuiltInUniform::WindowHeight)
+                UniformBinding::Builtin(BuiltinUniform::WindowHeight)
             }
             ("mouse_pos", UniformType::FloatVec2) => {
-                UniformBinding::BuiltIn(BuiltInUniform::MousePos)
+                UniformBinding::Builtin(BuiltinUniform::MousePos)
             }
-            ("window_size", UniformType::Float) => {
-                UniformBinding::BuiltIn(BuiltInUniform::WindowSize)
+            ("window_size", UniformType::FloatVec2) => {
+                UniformBinding::Builtin(BuiltinUniform::WindowSize)
             }
             _ => UniformBinding::Unbound,
         };

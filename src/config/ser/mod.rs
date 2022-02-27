@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::geom::Geometry;
 use glam::f32::Vec3;
 use serde::Deserialize;
@@ -7,6 +9,8 @@ use settings::Settings;
 
 mod texture;
 pub use texture::*;
+
+use super::pass::CustomUniform;
 
 #[derive(Deserialize, Debug)]
 pub enum ObjectKind {
@@ -69,6 +73,8 @@ pub struct Pass {
     pub target: PassTarget,
     #[serde(default)]
     pub settings: Settings,
+    #[serde(default)]
+    pub uniforms: HashMap<String, CustomUniform>,
 }
 
 #[derive(Deserialize, Debug, PartialEq)]

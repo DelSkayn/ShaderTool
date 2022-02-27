@@ -4,7 +4,7 @@ use egui_glium::EguiGlium;
 use glium::{
     glutin::{
         self,
-        event::Event,
+        event::{Event, WindowEvent},
         event_loop::{ControlFlow, EventLoop, EventLoopProxy},
         window::WindowBuilder,
     },
@@ -85,6 +85,7 @@ pub struct App {
     egui: EguiGlium,
     _watcher: RecommendedWatcher,
     should_run: bool,
+    gui: gui::Gui,
 }
 
 impl App {
@@ -105,6 +106,7 @@ impl App {
             _watcher,
             state,
             should_run: true,
+            gui: gui::Gui::new(),
         })
     }
 
@@ -178,11 +180,7 @@ impl App {
     }
 
     fn redraw(&mut self, control_flow: &mut ControlFlow) {
-        self.egui.begin_frame(&self.display);
-
-        self.draw_gui();
-
-        let (needs_repaint, shapes) = self.egui.end_frame(&self.display);
+        let needs_repaint = self.draw_gui();
 
         *control_flow = if !self.should_run {
             glutin::event_loop::ControlFlow::Exit
@@ -213,7 +211,7 @@ impl App {
                     // Unwrap because at this point we verified that the current config should run
                     // without problem.
                     config.render(&mut target).unwrap();
-                    self.egui.paint(&self.display, &mut target, shapes);
+                    self.egui.paint(&self.display, &mut target);
                     target.finish().unwrap()
                 }
                 // The config reloaded without error but can still fail to render.
@@ -227,7 +225,7 @@ impl App {
                     } = self.state.take()
                     {
                         match config.render(&mut target).and_then(|_| {
-                            self.egui.paint(&self.display, &mut target, shapes);
+                            self.egui.paint(&self.display, &mut target);
                             target.finish()?;
                             Ok(())
                         }) {
@@ -253,7 +251,7 @@ impl App {
                 }
 
                 _ => {
-                    self.egui.paint(&self.display, &mut target, shapes);
+                    self.egui.paint(&self.display, &mut target);
                     target.finish().unwrap();
                 }
             }
@@ -273,16 +271,18 @@ impl App {
             }
 
             Event::WindowEvent { event, .. } => {
-                if let Some(x) = self.state.active_config_mut() {
-                    x.handle_window_event(&event)
+                if !self.egui.on_event(&event) {
+                    if let Some(x) = self.state.active_config_mut() {
+                        x.handle_window_event(&event)
+                    }
+                }
+                if event == WindowEvent::CloseRequested {
+                    *control_flow = glutin::event_loop::ControlFlow::Exit;
+                    self.should_run = false;
+                    return;
                 }
 
-                if self.egui.is_quit_event(&event) {
-                    *control_flow = glium::glutin::event_loop::ControlFlow::Exit;
-                }
-
-                self.egui.on_event(&event);
-
+                *control_flow = glutin::event_loop::ControlFlow::Poll;
                 self.display.gl_window().window().request_redraw(); // TODO: ask egui if the events warrants a repaint instead
             }
             Event::DeviceEvent { event, .. } => {
@@ -363,6 +363,7 @@ impl App {
                         }
                     }
                 }
+                *control_flow = glutin::event_loop::ControlFlow::Poll;
                 self.display.gl_window().window().request_redraw();
             }
             _ => {}

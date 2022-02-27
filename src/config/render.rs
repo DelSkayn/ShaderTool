@@ -1,4 +1,4 @@
-use super::{texture::LoadedTextureKind, Config, LoadedCamera, LoadedPasses, LoadedTarget};
+use super::{texture::LoadedTextureKind, Config, LoadedCamera, LoadedPass, LoadedTarget};
 use anyhow::{Context, Result};
 use glam::f32::{Mat4, Quat, Vec3};
 use std::collections::HashMap;
@@ -48,7 +48,7 @@ impl Config {
     pub fn get_target<'a>(
         &'a self,
         pass_id: usize,
-        pass: &'a LoadedPasses,
+        pass: &'a LoadedPass,
         target: &'a LoadedTarget,
     ) -> Result<MultiOutputFrameBuffer<'a>> {
         let targets = target

@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-glium = "0.30"
-egui = {version = "0.15", features = ["mint"]}
-egui_glium = "0.15"
+glium = "0.31"
+egui = {version = "0.17", features = ["mint"]}
+egui_glium = "0.17"
 serde = "1.0"
 serde_json = "1.0"
 ron = "0.7"

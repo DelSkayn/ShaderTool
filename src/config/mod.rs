@@ -2,10 +2,9 @@ use crate::render::Vertex;
 use anyhow::{Context, Result};
 use glam::f32::{Mat4, Quat, Vec2, Vec3};
 use glium::glutin::event::DeviceEvent;
-use glium::DrawParameters;
 use glium::{
     glutin::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
-    Display, IndexBuffer, Program, VertexBuffer,
+    Display, IndexBuffer, VertexBuffer,
 };
 use std::{collections::HashMap, ffi::OsStr, fmt::Write, fs::File, io::Read, path::Path};
 
@@ -14,6 +13,8 @@ use self::ser::CameraKind;
 mod ser;
 mod texture;
 use texture::LoadedTexture;
+mod pass;
+pub use pass::{BuiltInUniform, CustomUniform, LoadedPass, UniformBinding, UniformData};
 mod render;
 
 #[derive(Debug)]
@@ -51,24 +52,13 @@ pub struct LoadedTarget {
 }
 
 #[derive(Debug)]
-pub struct LoadedPasses {
-    vertex: Shader,
-    fragment: Shader,
-    program: Program,
-    draw_parameters: DrawParameters<'static>,
-    objects: Vec<usize>,
-    textures: Vec<(usize, String)>,
-    target: Option<LoadedTarget>,
-}
-
-#[derive(Debug)]
 pub struct Config {
     mouse_pressed: bool,
     config: ser::Config,
     camera: LoadedCamera,
-    objects: Vec<LoadedObject>,
-    textures: Vec<LoadedTexture>,
-    passes: Vec<LoadedPasses>,
+    pub objects: Vec<LoadedObject>,
+    pub textures: Vec<LoadedTexture>,
+    pub passes: Vec<LoadedPass>,
     display: Display,
 }
 
@@ -111,13 +101,10 @@ impl Config {
             .iter()
             .enumerate()
             .try_fold::<_, _, Result<_>>(Vec::new(), |mut acc, (idx, x)| {
-                acc.push(Self::load_pass(
-                    x,
-                    &object_name_match,
-                    &texture_name_match,
-                    display,
-                    idx,
-                )?);
+                acc.push(
+                    Self::load_pass2(x, &object_name_match, &texture_name_match, display)
+                        .with_context(|| format!("Error loading pass `{}`", idx))?,
+                );
                 Result::Ok(acc)
             })?;
 
@@ -145,7 +132,6 @@ impl Config {
     fn link_texture(
         texture: &ser::TextureRef,
         texture_name_match: &HashMap<String, usize>,
-        pass_num: usize,
     ) -> Result<(usize, String)> {
         match texture {
             ser::TextureRef::Renamed { name, r#as } => {
@@ -162,12 +148,7 @@ impl Config {
                     }
                     write!(expects, ".").unwrap();
 
-                    bail!(
-                        "Could not find texture `{}` for pass {}. {}",
-                        name,
-                        pass_num,
-                        expects
-                    )
+                    bail!("Could not find texture `{}`. {}", name, expects)
                 }
             }
             ser::TextureRef::Name(name) => {
@@ -184,24 +165,20 @@ impl Config {
                     }
                     write!(expects, ".").unwrap();
 
-                    bail!(
-                        "Could not find texture `{}` for pass {}. {}",
-                        name,
-                        pass_num,
-                        expects
-                    )
+                    bail!("Could not find texture `{}`. {}", name, expects)
                 }
             }
         };
     }
 
+    /*
     pub fn load_pass(
         pass: &ser::Pass,
         object_name_match: &HashMap<String, usize>,
         texture_name_match: &HashMap<String, usize>,
         display: &Display,
         pass_num: usize,
-    ) -> Result<LoadedPasses> {
+    ) -> Result<LoadedPass> {
         let objects = pass.objects.iter().try_fold(Vec::new(), |mut acc, x| {
             if let Some(x) = object_name_match.get(x).copied() {
                 acc.push(x);
@@ -256,6 +233,11 @@ impl Config {
             }
         }
 
+        let uniforms = program
+            .uniforms()
+            .map(|(a, b)| (a.clone(), b.clone()))
+            .collect();
+
         let target = match pass.target {
             ser::PassTarget::Frame => None,
             ser::PassTarget::Buffer(ref x) => {
@@ -287,7 +269,7 @@ impl Config {
 
         let draw_parameters = pass.settings.to_params();
 
-        Ok(LoadedPasses {
+        Ok(LoadedPass {
             vertex,
             fragment,
             objects,
@@ -295,8 +277,10 @@ impl Config {
             textures,
             program,
             target,
+            uniforms,
         })
     }
+    */
 
     pub fn load_object(object: &ser::Object, display: &Display) -> Result<LoadedObject> {
         let rot = Quat::from_rotation_ypr(

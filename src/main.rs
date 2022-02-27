@@ -21,6 +21,7 @@ fn main() -> Result<()> {
     let mut app = app::App::new(&event_loop)?;
 
     event_loop.run(move |event, _, control_flow| {
+        trace!("EVENT: {:?}", event);
         app.handle_event(event, control_flow);
     });
 }

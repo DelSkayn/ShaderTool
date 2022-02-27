@@ -52,6 +52,9 @@
         "objects": ["foo","bar"],
         "settings": {
             "cull": "counter_clockwise"
+        },
+        "uniforms":{
+            "light_pos": [3.5,20.0,0.4]
         }
     }]
 }

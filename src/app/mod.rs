@@ -310,7 +310,10 @@ impl App {
                                 }
                             };
                             match new_config {
-                                Ok(x) => {
+                                Ok(mut x) => {
+                                    old_config.as_deref().map(|old| {
+                                        x.copy_state(old);
+                                    });
                                     self.state = State::FirstFrame {
                                         old_config,
                                         config: Box::new(x),
@@ -346,7 +349,8 @@ impl App {
                                 }
                             };
                             match new_config {
-                                Ok(x) => {
+                                Ok(mut x) => {
+                                    x.copy_state(&*config);
                                     self.state = State::FirstFrame {
                                         old_config: Some(config),
                                         config: Box::new(x),

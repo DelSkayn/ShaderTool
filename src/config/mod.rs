@@ -138,6 +138,21 @@ impl Config {
         })
     }
 
+    pub fn copy_state(&mut self, other: &Self) {
+        match (&mut self.camera, &other.camera) {
+            (
+                LoadedCamera::Orbital { ref mut state, .. },
+                LoadedCamera::Orbital {
+                    state: ref src_state,
+                    ..
+                },
+            ) => {
+                *state = *src_state;
+            }
+            _ => {}
+        }
+    }
+
     fn link_texture(
         texture: &ser::TextureRef,
         texture_name_match: &HashMap<String, usize>,

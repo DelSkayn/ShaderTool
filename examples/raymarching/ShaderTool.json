@@ -1,0 +1,14 @@
+{
+    "objects":[
+        {
+            "name": "tgt",
+            "kind": {"geometry": "screen_quad"}
+        }
+    ],
+    "camera":{"fov":80.0},
+    "passes":[{
+        "vertex_shader": "vertex.glsl",
+        "fragment_shader": "fragment.glsl",
+        "objects": ["tgt"]
+    }]
+}
